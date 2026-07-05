@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="theme-color" content="#140d08" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<title>RAGTIME RUMBLE — un brawl de tinta y jazz</title>
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="icon" href="icon.svg" type="image/svg+xml" />
+<link rel="apple-touch-icon" href="icon.svg" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="wrap">
+    <canvas id="game" width="1280" height="720"></canvas>
+  </div>
+  <div id="hint">Teclado: <b>F</b> pantalla &nbsp;·&nbsp; <b>M</b> silenciar &nbsp;·&nbsp; <b>P</b> pausa &nbsp;·&nbsp; Móvil: controles en pantalla</div>
+  <div id="rotate"><div>🎺 Gira el móvil ↔<br /><small>RAGTIME RUMBLE se juega en horizontal</small></div></div>
+
+  <script src="audio.js"></script>
+  <script src="bosses.js"></script>
+  <script src="game.js"></script>
+  <script>
+    /* PWA: registra el service worker para instalar el juego y jugar offline */
+    if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => { }));
+  </script>
+</body>
+</html>
