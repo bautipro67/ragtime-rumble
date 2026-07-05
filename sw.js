@@ -1,12 +1,17 @@
 /* Service worker de RAGTIME RUMBLE — cachea el juego para que funcione offline e instalable (PWA). */
-const CACHE = "ragtime-v1.1";
-const ASSETS = [
+const CACHE = "ragtime-v1.2";
+const CORE = [
   "./", "./index.html", "./style.css",
   "./audio.js", "./bosses.js", "./game.js",
   "./manifest.webmanifest", "./icon.svg"
 ];
+const ICONS = ["./icon-192.png", "./icon-512.png"];
 self.addEventListener("install", e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then(async c => {
+    await c.addAll(CORE);                              // núcleo del juego (obligatorio)
+    await Promise.all(ICONS.map(u => c.add(u).catch(() => {}))); // iconos (mejor esfuerzo)
+    self.skipWaiting();
+  }));
 });
 self.addEventListener("activate", e => {
   e.waitUntil(
