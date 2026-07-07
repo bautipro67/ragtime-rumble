@@ -260,9 +260,10 @@
       return 1.8;
     }
     straightShots() {
-      const cx = this.x + 10, cy = this.y + 90;
+      // a la altura del pecho del jugador: se esquivan AGACHÁNDOSE o saltando (antes pasaban por encima sin tocar a nadie)
+      const cx = this.x + 10, cy = this.y + 150;
       for (let i = 0; i < 4; i++) this.after(i * 0.22, () => {
-        this.G.spawnProj({ x: cx, y: cy + this.G.rand(-30, 30), vx: -8.5, vy: 0, r: 13, shape: "ball", color: "#2a2a33", parry: i === 3 });
+        this.G.spawnProj({ x: cx, y: cy + this.G.rand(-20, 20), vx: -8.5, vy: 0, r: 13, shape: "ball", color: "#2a2a33", parry: i === 3 });
         this.G.sfx && this.G.sfx("shoot");
       });
       return 1.6;
@@ -358,14 +359,16 @@
       return 1.5;
     }
     dustBeam() {
-      const x = this.x + this.w / 2;
-      this.G.spawnHazard({ x: x - 45, y: this.y + this.h, w: 90, h: this.G.groundY - (this.y + this.h), telegraph: 0.8, active: 0.9, color: "#caa0ea", type: "beam", follow: false });
+      // rayo de polvo lunar que cae SOBRE el jugador (antes caía bajo la polilla y casi nunca amenazaba)
+      const x = Math.max(140, Math.min(this.G.W - 140, this.pPos().x));
+      this.G.spawnHazard({ x: x - 45, y: 60, w: 90, h: this.G.groundY - 60, telegraph: 0.8, active: 0.9, color: "#caa0ea", type: "beam", follow: false });
       return 2.0;
     }
     tornado() {
       const fromLeft = this.pPos().x > this.G.W / 2;
       const x0 = fromLeft ? -60 : this.G.W + 60;
-      this.G.spawnHazard({ x: x0 - 50, y: this.G.groundY - 220, w: 100, h: 220, telegraph: 0.7, active: 2.0, vx: fromLeft ? 6.2 : -6.2, color: "#b48ce0", type: "tornado" });
+      // activo 3.6 s: cruza la pantalla ENTERA (antes moría a mitad de camino sin llegar al jugador)
+      this.G.spawnHazard({ x: x0 - 50, y: this.G.groundY - 220, w: 100, h: 220, telegraph: 0.7, active: 3.6, vx: fromLeft ? 6.2 : -6.2, color: "#b48ce0", type: "tornado" });
       return 2.6;
     }
     featherFan() {
@@ -701,7 +704,8 @@
       return 2.3;
     }
     sweep() {
-      this.G.spawnHazard({ x: this.G.W + 40, y: 0, w: 80, h: this.G.H, telegraph: 0.7, active: 2.2, vx: -6.5, color: "#cfe2ef", type: "cloud" });
+      // activo 3.8 s: la nube cruza TODA la pantalla (antes se disipaba a mitad y nunca alcanzaba al jugador pegado al borde)
+      this.G.spawnHazard({ x: this.G.W + 40, y: 0, w: 80, h: this.G.H, telegraph: 0.7, active: 3.8, vx: -6.5, color: "#cfe2ef", type: "cloud" });
       return 2.6;
     }
     behave(dt) { this.y = 150 + Math.sin(this.t * 1.2) * 90; }
@@ -1015,7 +1019,11 @@
       if (this.phase === 2) { if (!this.shielded && Math.random() < 0.5) { this.raiseShield(); return 2.2; } return this.choice([1, 1], [this.blades, this.spikes]); }
       return this.choice([1, 1], [this.blades, this.beam]);
     }
-    beam() { this.G.spawnHazard({ x: 0, y: this.y + 60, w: this.G.W, h: 36, telegraph: 0.9, active: 0.5, color: "#ff5a5a", type: "laser" }); return 2.0; }
+    beam() {
+      // a altura alcanzable por el jugador (antes salía a la altura del propio Centinela, arriba del todo, y JAMÁS tocaba a nadie)
+      const y = this.G.rand(this.G.groundY - 240, this.G.groundY - 90);
+      this.G.spawnHazard({ x: 0, y: y - 18, w: this.G.W, h: 36, telegraph: 0.9, active: 0.5, color: "#ff5a5a", type: "laser" }); return 2.0;
+    }
     spikes() { const cx = this.x + this.w / 2, cy = this.y + this.h / 2; for (let i = 0; i < 12; i++) { const a = i * (TAU / 12); this.G.spawnProj({ x: cx, y: cy, vx: Math.cos(a) * 4.8, vy: Math.sin(a) * 4.8, r: 10, shape: "bolt", color: "#c060ff", parry: i % 4 === 0 }); } return 1.7; }
     blades() { const cx = this.x + this.w / 2, cy = this.y + this.h / 2; for (let k = 0; k < 14; k++) this.after(k * 0.09, () => { this.sa += 0.5; for (let arm = 0; arm < 3; arm++) { const a = this.sa + arm * (TAU / 3); this.G.spawnProj({ x: cx, y: cy, vx: Math.cos(a) * 4.4, vy: Math.sin(a) * 4.4, r: 11, shape: "gear", color: "#9099aa", parry: k % 5 === 0 && arm === 0 }); } }); return 2.3; }
     behave(dt) { this.x = (this.G.W / 2 - this.w / 2) + Math.sin(this.t * 0.9) * 180; this.y = 120 + Math.sin(this.t * 1.4) * 26; }
@@ -1051,7 +1059,7 @@
     drops() { const cx = this.x + 16, cy = this.y + this.h / 2; for (let i = 0; i < 3; i++) this.after(i * 0.4, () => { const v = this.aim(cx, cy, 3.4); this.G.spawnProj({ x: cx, y: cy, vx: v.vx, vy: v.vy, r: 14, shape: "ball", color: "#3a2a6a", homing: true, homeTime: 1.8, homeStr: 1.6, speed: 3.6, noFloor: true, parry: i === 1 }); }); return 1.8; }
     flak() { const cx = this.x + 16, cy = this.y + this.h / 2; for (let i = 0; i < 8; i++) { const a = Math.PI - 0.7 + i * 0.2; this.G.spawnProj({ x: cx, y: cy, vx: Math.cos(a) * 5, vy: Math.sin(a) * 5, r: 10, shape: "bolt", color: "#c060ff", noFloor: true, parry: i === 4 }); } return 1.6; }
     spiral() { const cx = this.x + this.w / 2, cy = this.y + this.h / 2; for (let k = 0; k < 14; k++) this.after(k * 0.09, () => { this.sa += 0.5; for (let arm = 0; arm < 3; arm++) { const a = this.sa + arm * (TAU / 3); this.G.spawnProj({ x: cx, y: cy, vx: Math.cos(a) * 3.8, vy: Math.sin(a) * 3.8, r: 9, shape: "ball", color: "#9ad0ff", noFloor: true, parry: k % 5 === 0 && arm === 0 }); } }); return 2.3; }
-    sweep() { this.G.spawnHazard({ x: this.G.W + 40, y: 0, w: 90, h: this.G.H, telegraph: 0.7, active: 2.2, vx: -6.5, color: "#2a1a4a", type: "cloud" }); return 2.6; }
+    sweep() { this.G.spawnHazard({ x: this.G.W + 40, y: 0, w: 90, h: this.G.H, telegraph: 0.7, active: 3.8, vx: -6.5, color: "#2a1a4a", type: "cloud" }); return 2.6; }   // 3.8 s: cruza toda la pantalla
     behave(dt) { this.y = 150 + Math.sin(this.t * 1.2) * 90; }
     onPhase() { this.G.shake(12); }
     draw(ctx) {
@@ -1275,7 +1283,7 @@
   /* 17 · EL SIFÓN — invierte la gravedad y hace SUBIR la tinta */
   class SiphonBoss extends Boss {
     constructor(G) {
-      super(G, { hp: 950, name: "El Sifón", thresholds: [0.6, 0.3], firstDelay: 1.4 });
+      super(G, { hp: 1050, name: "El Sifón", thresholds: [0.6, 0.3], firstDelay: 1.4 });   // 2º jefe del Reverso: algo más de vida que La Gemela
       this.w = 180; this.h = 210; this.x = G.W - 330; this.y = G.groundY - this.h; this.bob = 0;
     }
     getHitboxes() { return [{ x: this.x + 26, y: this.y + 24, w: this.w - 52, h: this.h - 36 }]; }
@@ -1344,7 +1352,8 @@
     erase() {
       const fromLeft = Math.random() < 0.5;
       // muro BAJO que barre el suelo: se salta por encima (antes era de altura completa e inesquivable)
-      this.G.spawnHazard({ x: fromLeft ? -70 : this.G.W + 10, y: this.G.groundY - 120, w: 56, h: 120, telegraph: 0.9, active: 1.1, vx: fromLeft ? 11 : -11, type: "erase", color: "#eae6f6" });
+      // activo 2.0 s: recorre la pantalla ENTERA (antes moría a mitad y no llegaba al jugador del otro lado)
+      this.G.spawnHazard({ x: fromLeft ? -70 : this.G.W + 10, y: this.G.groundY - 120, w: 56, h: 120, telegraph: 0.9, active: 2.0, vx: fromLeft ? 11 : -11, type: "erase", color: "#eae6f6" });
       return 1.9;
     }
     mirrorRain() {

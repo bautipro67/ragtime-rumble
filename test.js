@@ -85,8 +85,8 @@ function fuzz(frames) {
   KEYS.concat(["KeyX", "KeyO"]).forEach(ku);
 }
 function goMap() { // vuelve al mapa de forma fiable (despacha cartelas, cierra pausa/fin)
-  for (let k = 0; k < 18 && global.__rr && global.__rr.state !== "map"; k++) {
-    if (global.__rr.state === "story") { kd("KeyZ"); step(2); ku("KeyZ"); step(2); continue; }   // cartela de mundo -> Z
+  for (let k = 0; k < 30 && global.__rr && global.__rr.state !== "map"; k++) {
+    if (global.__rr.state === "story") { kd("KeyZ"); step(2); ku("KeyZ"); step(3); continue; }   // cartela de mundo -> Z (paso extra: da tiempo al cambio de estado)
     kd("Escape"); step(2); ku("Escape"); step(1);   // mantener Esc un frame para que abra la pausa
     click(640, 504); step(1); click(640, 554); step(1); click(640, 624); step(1); click(640, 584); step(1);
     step(8);
@@ -94,7 +94,7 @@ function goMap() { // vuelve al mapa de forma fiable (despacha cartelas, cierra 
   step(2);
 }
 const leave = goMap;
-function travelTo(x, y, wn) { for (let k = 0; k < 8 && getSave().world !== wn; k++) { goMap(); click(x, y); step(4); } }
+function travelTo(x, y, wn) { for (let k = 0; k < 14 && getSave().world !== wn; k++) { goMap(); click(x, y); step(4); goMap(); } }
 function fightAt(x, y, diffx, frames) { goMap(); click(x, y); step(2); click(diffx, 410); step(1); step(40); fuzz(frames); leave(); }
 function rngAt(x, y, frames) { goMap(); click(x, y); step(2); step(16); fuzz(frames); leave(); }
 

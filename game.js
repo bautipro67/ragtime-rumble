@@ -285,7 +285,7 @@
     smoke: { name: "Bomba de Humo", price: 5, desc: "El dash te vuelve invencible." },
     whet: { name: "Piedra de Afilar", price: 4, desc: "El dash daña a los enemigos." },
     magnet: { name: "Imán", price: 4, desc: "Atrae las monedas de los run-n-gun.", w: 2 },
-    shield: { name: "Escudo", price: 6, desc: "Bloquea el primer golpe de cada combate.", w: 2 },
+    shield: { name: "Escudo", price: 6, desc: "Bloquea un golpe. Se rehace solo tras 22 s.", w: 2 },
     spring: { name: "Resorte", price: 5, desc: "Doble salto: un 2.º salto ROSA (parry) con más impulso.", w: 2 },
     feather: { name: "Pluma", price: 5, desc: "Mantén salto al caer para planear.", w: 3 },
     hourglass: { name: "Reloj de Arena", price: 7, desc: "Empiezas cada combate con 2 cartas de súper.", w: 3 },
@@ -300,14 +300,14 @@
   const WTUNE = {
     pea:       { dmg: 5,   cd: 0.12 },  // ~42 dps · referencia
     spread:    { dmg: 3.6, cd: 0.42 },  // abanico de 5, corto alcance
-    chaser:    { dmg: 3.6, cd: 0.14 },  // teledirigida, cómoda pero floja
+    chaser:    { dmg: 3.9, cd: 0.14 },  // teledirigida, cómoda pero floja (antes 3.6: quedaba corta)
     lobber:    { dmg: 15,  cd: 0.5  },  // arco + salpicadura (antes 21)
-    boomerang: { dmg: 5,   cd: 0.55 },  // golpea ida y vuelta (antes 6)
+    boomerang: { dmg: 6,   cd: 0.55 },  // golpea ida y vuelta (5 la dejó infrautilizada; ~22 dps efectivo)
     ray:       { dmg: 1.7, cd: 0.05 },  // haz a quemarropa (antes 2.0)
     wave:      { dmg: 6,   cd: 0.55 },  // onda perforante multi-impacto (antes 9)
     needle:    { dmg: 3.0, cd: 0.09 },  // rápida y perforante (antes 4.0)
     comet:     { dmg: 12,  cd: 0.72 },  // teledirigido cómodo pero FLOJO (~17 dps): antes 22→18→12
-    mirror:    { dmg: 4.0, cd: 0.12 },  // Espejo: 2 balas (recta + reflejo TELEDIRIGIDO) -> ~66 dps efectivo fiable
+    mirror:    { dmg: 3.2, cd: 0.12 },  // Espejo: 2 balas (recta + reflejo TELEDIRIGIDO) -> ~53 dps efectivo (antes 4.0/~66: eclipsaba a todo el arsenal)
     // (Aleatoria no tiene entrada propia: en cada disparo elige un arma del pool y usa SU tuning)
   };
   const playerMaxHp = () => 3 + (save.equipC === "heart" ? 1 : 0) + (save.equipC === "twin" ? 2 : 0);
@@ -443,6 +443,11 @@
       if (this.slowT > 0) this.slowT -= dt;   // petrificado por la Mirada de Piedra
       if (this.godInv > 0) this.godInv -= dt;
       if (save.equipC === "god") { this.godT = (this.godT || 0) + dt; if (this.godT >= 8) { this.godT = 0; this.inv = Math.max(this.inv, 2); this.godInv = 2; flashScreen = Math.max(flashScreen, 0.14); AUDIO.sfx("parry"); G.floatText(this.x + this.w / 2, this.y - 30, "¡DIOS!", "#ffd24a"); G.burst(this.x + this.w / 2, this.y + this.h / 2, { n: 22, color: "#ffd24a", smin: 2, smax: 8 }); } } else this.godT = 0;
+      // amuleto Escudo: se recompone solo tras 22 s (antes solo valía 1 vez por combate — muy caro para eso)
+      if (save.equipC === "shield" && !this.shield && !this.dead) {
+        this.shieldT = (this.shieldT || 0) + dt;
+        if (this.shieldT >= 22) { this.shieldT = 0; this.shield = true; AUDIO.sfx("parry"); G.floatText(this.x + this.w / 2, this.y - 20, "¡ESCUDO REHECHO!", "#7af0ff"); G.burst(this.x + this.w / 2, this.y + this.h / 2, { n: 10, color: "#7af0ff", smin: 1, smax: 5 }); }
+      } else this.shieldT = 0;
       if (this.dashCD > 0) this.dashCD -= dt;
       if (this.muzzle > 0) this.muzzle -= dt;
       if (this.pinkJump > 0) this.pinkJump -= dt;
@@ -471,10 +476,10 @@
 
       if (edge && tapped("jump")) {
         if (!this.onGround && this.tryParry()) { /* parry consumió el salto */ }
-        else if (this.onGround || (this.coyote > 0 && this.jumps === 0)) { this.vy = -15 * gs; this.jumps = 1; this.onGround = false; this.jumpHeld = true; this.coyote = 0; AUDIO.sfx("jump"); }
+        else if (this.onGround || (this.coyote > 0 && this.jumps === 0)) { this.dashT = 0; this.vy = -15 * gs; this.jumps = 1; this.onGround = false; this.jumpHeld = true; this.coyote = 0; AUDIO.sfx("jump"); }   // el salto CANCELA el dash (dash-jump)
         else if (this.jumps < this.maxJumps()) {
           // segundo salto (amuleto Resorte): salto "rosa" estilo parry, con más impulso
-          this.vy = -16.5 * gs; this.jumps++; this.jumpHeld = true; this.pinkJump = 0.4; AUDIO.sfx("parry");
+          this.dashT = 0; this.vy = -16.5 * gs; this.jumps++; this.jumpHeld = true; this.pinkJump = 0.4; AUDIO.sfx("parry");
           flashScreen = Math.max(flashScreen, 0.06);
           G.burst(this.x + this.w / 2, this.y + this.h / 2, { n: 14, color: "#ff7ab8", smin: 1.5, smax: 5, grav: 0.03 });
         }
@@ -483,7 +488,13 @@
       if (!held("jump")) this.jumpHeld = false;
       if (!this.jumpHeld && this.vy * gs < 0 && this.dashT <= 0) this.vy *= 0.86;
 
-      if (this.dashT <= 0) { this.vy += 0.62 * f * gs; if (this.vy * gs > 17) this.vy = 17 * gs; }
+      if (this.dashT <= 0) {
+        this.vy += 0.62 * f * gs;
+        // caída rápida: mantén ABAJO en el aire para bajar antes (más control para castigar o esquivar)
+        if (!this.onGround && D && this.vy * gs > 0 && !L && !R) this.vy += 0.5 * f * gs;
+        const capV = (!this.onGround && D) ? 21 : 17;
+        if (this.vy * gs > capV) this.vy = capV * gs;
+      }
       if (save.equipC === "feather" && gs > 0 && !this.onGround && this.vy > 0 && held("jump")) { this.vy = Math.min(this.vy, 2.3); if (Math.random() < 0.3) G.burst(this.x + this.w / 2, this.y + this.h, { n: 1, color: "#cfeaff", smin: 0.5, smax: 1.5, grav: -0.05 }); }
       this.x += this.vx * f; this.y += this.vy * f;
       this.x = clamp(this.x, 10, worldW - 10 - this.w);
@@ -508,7 +519,7 @@
         G.burst(this.x + this.w / 2, gs > 0 ? this.y + this.h : this.y, { n: 6, color: "#e8dcc0", smin: 1, smax: 3.5, up: gs > 0 ? 1 : -1, grav: 0.08 * gs, lmin: 0.2, lmax: 0.4 });
       }
       // buffer de salto al aterrizar + coyote time
-      if (this.onGround && this.jumpBuf > 0) { this.vy = -15 * gs; this.jumps = 1; this.onGround = false; this.jumpHeld = true; this.jumpBuf = 0; AUDIO.sfx("jump"); }
+      if (this.onGround && this.jumpBuf > 0) { this.dashT = 0; this.vy = -15 * gs; this.jumps = 1; this.onGround = false; this.jumpHeld = true; this.jumpBuf = 0; AUDIO.sfx("jump"); }
       this.coyote = this.onGround ? 0.1 : Math.max(0, this.coyote - dt);
       this.jumpBuf = Math.max(0, this.jumpBuf - dt);
 
@@ -824,10 +835,15 @@
       ctx.fillStyle = gl; roundRect(-hw + 2, -hh + 8, hw * 2 - 4, hh, 14); ctx.fill();
       ctx.fillStyle = "rgba(0,0,0,0.08)"; roundRect(hw - 13, -hh + 9, 11, hh, 8); ctx.fill();
       ctx.fillStyle = P.rim; roundRect(-hw - 1, -hh - 2, hw * 2 + 2, 13, 8); ctx.fill(); ctx.lineWidth = 5; ctx.strokeStyle = "#1a120a"; ctx.stroke();
-      ctx.fillStyle = P.liquid; ctx.beginPath(); ctx.ellipse(0, -hh + 4, hw - 5, 6, 0, 0, TAU); ctx.fill();
-      ctx.fillStyle = P.liquid2; ctx.beginPath(); ctx.ellipse(-6, -hh + 3, 7, 2.4, 0, 0, TAU); ctx.fill();
-      ctx.strokeStyle = P.straw; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(8, -hh + 4); ctx.lineTo(15, -hh - 17); ctx.stroke();
-      ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(15, -hh - 17, 3.5, 0, TAU); ctx.fill();
+      // el líquido SE LADEA con la inercia (chapoteo) y la pajita se mece al revés
+      const slosh = clamp(-this.vx * 1.1 - (air ? this.vy * gsP * 0.35 : 0), -6, 6);
+      ctx.save(); ctx.translate(0, -hh + 4); ctx.rotate(slosh * 0.045);
+      ctx.fillStyle = P.liquid; ctx.beginPath(); ctx.ellipse(slosh * 0.4, 0, hw - 5, 6 + Math.abs(slosh) * 0.3, 0, 0, TAU); ctx.fill();
+      ctx.fillStyle = P.liquid2; ctx.beginPath(); ctx.ellipse(-6 + slosh * 0.6, -1, 7, 2.4, 0, 0, TAU); ctx.fill();
+      ctx.restore();
+      const strawX = 15 - slosh * 0.7;
+      ctx.strokeStyle = P.straw; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(8, -hh + 4); ctx.quadraticCurveTo(12, -hh - 7, strawX, -hh - 17); ctx.stroke();
+      ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(strawX, -hh - 17, 3.5, 0, TAU); ctx.fill();
       pieEye(-9, -hh + 23, 8.5, ang); pieEye(9, -hh + 23, 8.5, ang);
       ctx.strokeStyle = "#1a120a"; ctx.lineWidth = 2.5; const br = clamp(this.aimY, -1, 1) * 3;
       ctx.beginPath(); ctx.moveTo(-15, -hh + 14 + br); ctx.lineTo(-4, -hh + 12 - br); ctx.moveTo(15, -hh + 14 + br); ctx.lineTo(4, -hh + 12 - br); ctx.stroke();
@@ -1280,7 +1296,7 @@
     for (const c of coins) {
       if (c.got) continue;
       const tgt = nearestPlayer({ x: c.x, y: c.y }), pb = tgt.box(), pcx = pb.x + pb.w / 2, pcy = pb.y + pb.h / 2;
-      if (mag) { const d = Math.hypot(pcx - c.x, pcy - c.y); if (d < 220) { c.x += (pcx - c.x) / d * 5 * f; c.y += (pcy - c.y) / d * 5 * f; } }
+      if (mag) { const d = Math.hypot(pcx - c.x, pcy - c.y); if (d < 300) { c.x += (pcx - c.x) / d * 6 * f; c.y += (pcy - c.y) / d * 6 * f; } }   // imán con más alcance y tirón
       for (const p of players) { if (p.dead || p.ghost) continue; const b = p.box(); if (circRect(c.x, c.y, 16, b.x, b.y, b.w, b.h)) { c.got = true; save.collectedCoins[c.id] = 1; save.coins++; persist(); AUDIO.sfx("coin"); G.floatText(c.x, c.y - 12, "+1 ◎", "#ffd24a"); rumble(0.08, 0.2, 0.3); break; } }
     }
   }
@@ -1289,6 +1305,9 @@
     const ink = "#1a120a";
     for (const e of enemies) {
       if (e.x < cam.x - 80 || e.x > cam.x + W + 80) continue;
+      // los ojos siguen al jugador más cercano (mirada con intención)
+      const tp = nearestPlayer({ x: e.x, y: e.y });
+      const ea = Math.atan2((tp.y + tp.h / 2) - e.y, (tp.x + tp.w / 2) - e.x);
       ctx.save(); ctx.translate(e.x, e.y); ctx.lineJoin = "round"; ctx.lineCap = "round";
       // sombra en el suelo para los terrestres
       if (e.type === "blob" || e.type === "runner" || e.type === "turret") { ctx.fillStyle = "rgba(0,0,0,0.22)"; ctx.beginPath(); ctx.ellipse(0, GROUND - e.y, e.r * 0.95, 6, 0, 0, TAU); ctx.fill(); }
@@ -1299,7 +1318,7 @@
         ctx.beginPath(); ctx.moveTo(-5, e.r - sq - 2); ctx.quadraticCurveTo(0, e.r + 6, 5, e.r - sq - 2); ctx.fill();   // goteo
         ctx.lineWidth = 3; ctx.beginPath(); ctx.ellipse(0, 0, e.r, e.r - sq, 0, 0, TAU); ctx.stroke();
         ctx.fillStyle = "rgba(255,255,255,0.28)"; ctx.beginPath(); ctx.ellipse(-e.r * 0.34, -e.r * 0.4, e.r * 0.26, e.r * 0.16, -0.5, 0, TAU); ctx.fill();   // brillo
-        pieEye(-7, -4, 5); pieEye(7, -4, 5);
+        pieEye(-7, -4, 5, ea); pieEye(7, -4, 5, ea);
         ctx.strokeStyle = ink; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-12, -11); ctx.lineTo(-3, -8); ctx.moveTo(12, -11); ctx.lineTo(3, -8); ctx.stroke();   // ceño
         ctx.beginPath(); ctx.arc(0, 5, 4, 0.1 * Math.PI, 0.9 * Math.PI); ctx.stroke();
       }
@@ -1314,7 +1333,7 @@
         ctx.fillStyle = "#3a3340"; roundRect(-4, -e.r - 9 + rec, 8, 13, 2); ctx.fill(); ctx.stroke();   // cañón (con recoil)
         ctx.fillStyle = arm2 ? `rgba(255,90,90,${0.5 + Math.sin(time * 20) * 0.5})` : "#ffd24a"; ctx.beginPath(); ctx.arc(0, -e.r - 9 + rec, 2.6, 0, TAU); ctx.fill();
         if (rec > 2) { ctx.fillStyle = "#fff6c0"; star(0, -e.r - 14, 7, 5); ctx.fill(); }
-        pieEye(-6, -2, 4.5); pieEye(6, -2, 4.5);
+        pieEye(-6, -2, 4.5, ea); pieEye(6, -2, 4.5, ea);
       }
       else if (e.type === "runner") {
         const fc = e.face || -1, run = Math.sin(e.t * 18) * 4;
@@ -1324,7 +1343,7 @@
         ctx.strokeStyle = ink; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(-8, e.r - 4); ctx.lineTo(-8 - run, e.r + 9); ctx.lineTo(-8 - run + fc * 4, e.r + 9); ctx.moveTo(8, e.r - 4); ctx.lineTo(8 + run, e.r + 9); ctx.lineTo(8 + run + fc * 4, e.r + 9); ctx.stroke();
         ctx.fillStyle = bodyGrad(e.r, e.color); ctx.beginPath(); ctx.ellipse(0, 0, e.r, e.r - 2, 0, 0, TAU); ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = ink; ctx.stroke();
         ctx.fillStyle = "rgba(255,255,255,0.22)"; ctx.beginPath(); ctx.ellipse(-e.r * 0.3, -e.r * 0.42, e.r * 0.22, e.r * 0.14, -0.5, 0, TAU); ctx.fill();
-        pieEye(fc * 4 - 6, -5, 5); pieEye(fc * 4 + 6, -5, 5);
+        pieEye(fc * 4 - 6, -5, 5, ea); pieEye(fc * 4 + 6, -5, 5, ea);
         ctx.strokeStyle = ink; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(fc * 4 - 11, -12); ctx.lineTo(fc * 4 - 2, -9); ctx.moveTo(fc * 4 + 11, -12); ctx.lineTo(fc * 4 + 2, -9); ctx.stroke();
         ctx.fillStyle = ink; ctx.beginPath(); ctx.arc(fc * 3, 7, 7, 0, Math.PI); ctx.fill(); ctx.fillStyle = "#fff"; for (let i = -1; i <= 1; i++) { ctx.beginPath(); ctx.moveTo(fc * 3 + i * 5 - 2, 7); ctx.lineTo(fc * 3 + i * 5, 12); ctx.lineTo(fc * 3 + i * 5 + 2, 7); ctx.fill(); }
         ctx.restore();
@@ -1339,7 +1358,7 @@
         ctx.fillStyle = bodyGrad(e.r, e.color); ctx.beginPath(); ctx.ellipse(0, 0, e.r, e.r - 5, 0, 0, TAU); ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = ink; ctx.stroke();
         ctx.fillStyle = "rgba(255,255,255,0.2)"; ctx.beginPath(); ctx.ellipse(-e.r * 0.3, -e.r * 0.35, e.r * 0.2, e.r * 0.12, -0.5, 0, TAU); ctx.fill();
         ctx.fillStyle = "#ffd24a"; ctx.beginPath(); ctx.moveTo(-4, 6); ctx.lineTo(4, 6); ctx.lineTo(0, 16); ctx.closePath(); ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = ink; ctx.stroke();
-        pieEye(-6, -3, 5); pieEye(6, -3, 5);
+        pieEye(-6, -3, 5, ea); pieEye(6, -3, 5, ea);
         if (e.diving) { ctx.strokeStyle = "rgba(255,90,90,0.5)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, e.r + 5, 0, TAU); ctx.stroke(); }
       }
       else {
@@ -2115,11 +2134,12 @@
           ctx.strokeStyle = "#1a120a"; ctx.lineWidth = 2; ctx.save(); ctx.translate(16, 0); ctx.rotate(time * 26); ctx.beginPath(); ctx.moveTo(0, -8); ctx.lineTo(0, 8); ctx.stroke(); ctx.restore();
           ctx.restore();
         } else {
-          const rn = Math.sin(time * 9 + nd.x) * 4;
-          ctx.save(); ctx.translate(nd.x, nd.y); ctx.lineJoin = "round"; ctx.lineCap = "round";
-          ctx.strokeStyle = "#ffd24a"; ctx.lineWidth = 4;
-          ctx.beginPath(); ctx.moveTo(-8, -8); ctx.quadraticCurveTo(-2 - rn * 0.4, 0, -6 - rn, 9); ctx.moveTo(2, -8); ctx.quadraticCurveTo(6 + rn * 0.4, 0, 6 + rn, 9); ctx.stroke();
-          ctx.strokeStyle = "rgba(255,240,200,0.7)"; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(-16, -2); ctx.lineTo(-24, -2); ctx.moveTo(-15, 4); ctx.lineTo(-22, 4); ctx.stroke();
+          const rn = Math.sin(time * 5 + nd.x) * 1.6;
+          ctx.save(); ctx.translate(nd.x + rn, nd.y); ctx.lineJoin = "round"; ctx.lineCap = "round";
+          // flecha de carrera bien legible + líneas de velocidad
+          ctx.fillStyle = "#ffd24a"; ctx.beginPath(); ctx.moveTo(-4, -11); ctx.lineTo(13, 0); ctx.lineTo(-4, 11); ctx.lineTo(-4, 4); ctx.lineTo(-12, 4); ctx.lineTo(-12, -4); ctx.lineTo(-4, -4); ctx.closePath(); ctx.fill();
+          ctx.strokeStyle = "#1a120a"; ctx.lineWidth = 2.5; ctx.stroke();
+          ctx.strokeStyle = "rgba(255,240,200,0.75)"; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(-16, -7); ctx.lineTo(-22, -7); ctx.moveTo(-15, 0); ctx.lineTo(-23, 0); ctx.moveTo(-16, 7); ctx.lineTo(-22, 7); ctx.stroke();
           ctx.restore();
         }
         bigText(lv.name, nd.x, nd.y + 52, 12, "#fff");
@@ -3969,7 +3989,7 @@
     ctx.fillText("Mando:  Saltar Ⓐ · DISPARAR Ⓧ · Dash Ⓑ · EX/Súper Ⓨ · Apuntado RT · Cambiar LB/RB", W / 2, 576);
     bigText("¿Primera vez? Entra en el nodo TUTORIAL de la isla", W / 2, 616, 15, "#7af0c0");
     ctx.font = "12px Trebuchet MS"; ctx.fillStyle = "#a89478"; ctx.textAlign = "center";
-    ctx.fillText("5 mundos · 18 jefes (+2 secretos) · súper artes · boss rush · mausoleo · logros · co-op · todo 100% original", W / 2, 700);
+    ctx.fillText("5 mundos · 18 jefes (+2 secretos) · súper artes · boss rush · mausoleo · logros · co-op · todo 100% original", W / 2, 694);
     // botonera inferior
     const hr = { x: W / 2 - 344, y: 638, w: 212, h: 40 }, lr = { x: W / 2 - 106, y: 638, w: 212, h: 40 }, or = { x: W / 2 + 132, y: 638, w: 212, h: 40 };
     [[hr, "📖 Historia"], [lr, "🏆 Logros (Q)"], [or, "⚙ Opciones (⇧)"]].forEach(bt => {
