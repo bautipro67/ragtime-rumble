@@ -596,7 +596,7 @@
       ctx.fillStyle = flash ? "#fff" : bg; roundRectB(ctx, cx - 80, this.y + 28, 160, 150, 18); ctx.fill(); ctx.strokeStyle = "#1a120a"; ctx.lineWidth = 6; ctx.stroke();
       ctx.fillStyle = "#6a7080"; for (const rx of [-70, 70]) for (const ry of [40, 160]) { ctx.beginPath(); ctx.arc(cx + rx, this.y + ry, 4, 0, TAU); ctx.fill(); }
       ctx.fillStyle = "#2a2e3a"; roundRectB(ctx, cx - 42, this.y + 118, 84, 42, 8); ctx.fill(); ctx.strokeStyle = "#1a120a"; ctx.lineWidth = 3; ctx.stroke();
-      ctx.fillStyle = this.phase === 1 ? "#7af0a0" : "#ff6a4a"; ctx.fillRect(cx - 36, this.y + 150, 72 * (this.hp / this.maxHp), 6);
+      ctx.fillStyle = this.phase === 1 ? "#7af0a0" : "#ff6a4a"; ctx.fillRect(cx - 36, this.y + 150, 72, 6);   // luz de fase decorativa (sin filtrar la vida)
       // cabeza
       ctx.fillStyle = flash ? "#fff" : "#b6bcca"; roundRectB(ctx, cx - 46, this.y - 20, 92, 60, 12); ctx.fill(); ctx.strokeStyle = "#1a120a"; ctx.lineWidth = 5; ctx.stroke();
       ctx.strokeStyle = "#1a120a"; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(cx, this.y - 20); ctx.lineTo(cx, this.y - 46); ctx.stroke();
@@ -1216,9 +1216,6 @@
       ctx.strokeStyle = "#11101a"; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(cx - 26, y + 124); ctx.lineTo(cx + 26, y + 124); ctx.stroke();
       for (let i = -2; i <= 2; i++) { ctx.beginPath(); ctx.moveTo(cx + i * 12, y + 118); ctx.lineTo(cx + i * 12, y + 130); ctx.stroke(); }
       ctx.restore();
-      // barra de fase mini
-      ctx.fillStyle = "#11101a"; ctx.fillRect(cx - 40, y + 6, 80, 7);
-      ctx.fillStyle = this.shielded ? "#ff4fa3" : "#e8e8f0"; ctx.fillRect(cx - 39, y + 7, 78 * Math.max(0, this.hp / this.maxHp), 5);
     }
   }
   /* ============================================================
@@ -1276,7 +1273,6 @@
       ctx.restore();
       if (this.phase >= 2) { ctx.strokeStyle = "#1a1430"; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(cx, y + 20); ctx.lineTo(cx - 16, y + 70); ctx.lineTo(cx + 10, y + 120); ctx.lineTo(cx - 8, y + 170); ctx.moveTo(cx - 16, y + 70); ctx.lineTo(cx - 48, y + 90); ctx.moveTo(cx + 10, y + 120); ctx.lineTo(cx + 44, y + 110); ctx.stroke(); }
       this.eye(ctx, cx - 12, y + 58, 11); this.eye(ctx, cx + 12, y + 58, 11);
-      ctx.fillStyle = "#1a1430"; ctx.fillRect(cx - 40, y - 20, 80, 7); ctx.fillStyle = this.shielded ? "#ff4fa3" : "#bfe0ff"; ctx.fillRect(cx - 39, y - 19, 78 * Math.max(0, this.hp / this.maxHp), 5);
     }
   }
 
@@ -1332,7 +1328,6 @@
       ctx.fillStyle = "rgba(255,255,255,0.18)"; ctx.beginPath(); ctx.ellipse(cx - 14, y + 54, 18, 5, -0.3, 0, TAU); ctx.fill();
       this.eye(ctx, cx - 22, y + 110, 16); this.eye(ctx, cx + 22, y + 110, 16);
       ctx.strokeStyle = "#0e2230"; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(cx, y + 152, 20, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke();
-      ctx.fillStyle = "#0e2230"; ctx.fillRect(cx - 46, y + 6, 92, 8); ctx.fillStyle = this.shielded ? "#ff4fa3" : "#7ad0f0"; ctx.fillRect(cx - 45, y + 7, 90 * Math.max(0, this.hp / this.maxHp), 6);
     }
   }
 
@@ -1386,7 +1381,6 @@
       ctx.save(); ctx.translate(cx - 72, y + 120); ctx.rotate(-0.5); ctx.fillStyle = "#fff"; roundRectB(ctx, -6, -50, 12, 64, 5); ctx.fill(); ctx.strokeStyle = "#100c1e"; ctx.lineWidth = 3; ctx.stroke(); ctx.fillStyle = "#cfc8e6"; ctx.beginPath(); ctx.moveTo(-6, 14); ctx.lineTo(6, 14); ctx.lineTo(0, 28); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
       this.eye(ctx, cx, y + 104, 20);
       ctx.strokeStyle = "rgba(40,30,70,0.5)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(cx - 40, y + 70); ctx.lineTo(cx - 18, y + 96); ctx.moveTo(cx + 36, y + 80); ctx.lineTo(cx + 14, y + 110); ctx.stroke();
-      ctx.fillStyle = "#100c1e"; ctx.fillRect(cx - 50, y + 38, 100, 8); ctx.fillStyle = this.shielded ? "#ff4fa3" : "#d8d2ee"; ctx.fillRect(cx - 49, y + 39, 98 * Math.max(0, this.hp / this.maxHp), 6);
     }
   }
 

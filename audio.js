@@ -380,28 +380,30 @@
   function sfx(name) {
     if (!ctx) return;
     const t = now(), b = sfxBus;
+    // variación de tono humana en los sonidos de combate (los de UI se dejan estables)
+    const pv = 0.96 + Math.random() * 0.08;
     switch (name) {
       case "shoot":
-        tone(t, 880, 0.09, { type: "square", gain: 0.16, glide: 1500, bus: b, cutoff: 3000 });
-        noiseHit(t, { dur: 0.04, hp: 3000, gain: 0.06, bus: b }); break;
+        tone(t, 880 * pv, 0.09, { type: "square", gain: 0.16, glide: 1500 * pv, bus: b, cutoff: 3000 });
+        noiseHit(t, { dur: 0.04, hp: 3000, gain: 0.06, bus: b, rate: pv }); break;
       case "shootBig":
-        tone(t, 320, 0.22, { type: "sawtooth", gain: 0.26, glide: 700, bus: b, cutoff: 2200 });
-        noiseHit(t, { dur: 0.12, hp: 1200, gain: 0.12, bus: b }); break;
+        tone(t, 320 * pv, 0.22, { type: "sawtooth", gain: 0.26, glide: 700 * pv, bus: b, cutoff: 2200 });
+        noiseHit(t, { dur: 0.12, hp: 1200, gain: 0.12, bus: b, rate: pv }); break;
       case "jump":
-        tone(t, 420, 0.14, { type: "square", gain: 0.14, glide: 240, bus: b }); break;
+        tone(t, 420 * pv, 0.14, { type: "square", gain: 0.14, glide: 240 * pv, bus: b }); break;
       case "dash":
-        noiseHit(t, { dur: 0.18, hp: 800, lp: 5000, gain: 0.18, bus: b, rate: 0.7 }); break;
+        noiseHit(t, { dur: 0.18, hp: 800, lp: 5000, gain: 0.18, bus: b, rate: 0.7 * pv }); break;
       case "hit": // jugador recibe daño
-        tone(t, 200, 0.3, { type: "sawtooth", gain: 0.3, glide: 380, bus: b, cutoff: 1400 });
+        tone(t, 200 * pv, 0.3, { type: "sawtooth", gain: 0.3, glide: 380 * pv, bus: b, cutoff: 1400 });
         noiseHit(t, { dur: 0.2, hp: 500, gain: 0.18, bus: b }); break;
       case "bosshit":
-        noiseHit(t, { dur: 0.05, hp: 2000, gain: 0.08, bus: b }); break;
+        noiseHit(t, { dur: 0.05, hp: 2000, gain: 0.08, bus: b, rate: pv }); break;
       case "parry":
-        tone(t, 1320, 0.16, { type: "triangle", gain: 0.28, bus: b });
-        tone(t + 0.04, 1760, 0.18, { type: "triangle", gain: 0.22, bus: b }); break;
+        tone(t, 1320 * pv, 0.16, { type: "triangle", gain: 0.28, bus: b });
+        tone(t + 0.04, 1760 * pv, 0.18, { type: "triangle", gain: 0.22, bus: b }); break;
       case "coin":
-        tone(t, 1568, 0.08, { type: "square", gain: 0.16, bus: b });
-        tone(t + 0.07, 2093, 0.12, { type: "square", gain: 0.16, bus: b }); break;
+        tone(t, 1568 * pv, 0.08, { type: "square", gain: 0.16, bus: b });
+        tone(t + 0.07, 2093 * pv, 0.12, { type: "square", gain: 0.16, bus: b }); break;
       case "super":
         tone(t, 130, 0.6, { type: "sawtooth", gain: 0.3, glide: 60, bus: b, cutoff: 2600 });
         for (let i = 0; i < 5; i++) tone(t + i * 0.05, mf(64 + i * 5), 0.4, { type: "square", gain: 0.12, bus: b }); break;

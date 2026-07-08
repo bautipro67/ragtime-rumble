@@ -238,7 +238,7 @@
   // El +100% de maestría se reparte entre los 15 jefes en Experto + EL DESCARTE (16): sin el secreto NO se llega al 200%.
   function slotProgress(s) {
     // El Mundo Extra (Reverso, world 5) es BONUS: no entra en el medidor 0–200% (que mide el juego principal).
-    const mainW = Object.keys(WEAPONS).filter(k => !WEAPONS[k].world5);
+    const mainW = Object.keys(WEAPONS).filter(k => !WEAPONS[k].world5 && !WEAPONS[k].bonus);
     const mainC = Object.keys(CHARMS).filter(k => !CHARMS[k].world5 && !CHARMS[k].bonus);
     const W = mainW.length, C = mainC.length, R = RNG_LEVELS.length;
     const mainB = BOSSES.filter(b => b.world <= 4), B = mainB.length, mainIds = mainB.map(b => b.id);
@@ -276,6 +276,8 @@
     // exclusivas del Mundo Extra (botín de jefes del Reverso de Tinta)
     mirror: { name: "Espejo", price: 0, color: "#bfe0ff", desc: "Cada disparo lanza un gemelo reflejado.", ex: "Cruz de espejos en cuatro direcciones.", world5: true },
     random: { name: "Aleatoria", price: 0, color: "#c8a8ff", desc: "Ráfaga rápida: cada disparo es el de un arma distinta, al azar.", ex: "El EX de un arma al azar.", world5: true },
+    // ARMA PROHIBIDA del código 67676767: rota a propósito (bonus = fuera del medidor 0–200% y de la tienda hasta poseerla)
+    brass: { name: "La Orquesta", price: 0, color: "#ffd24a", desc: "Toda la big band tocando a la vez. Absurda, exagerada, prohibida.", ex: "Big Band: 12 notas doradas teledirigidas que barren TODO.", bonus: true },
   };
   const RANDOM_POOL = ["pea", "spread", "chaser", "lobber", "boomerang", "ray", "wave", "needle", "comet", "mirror"];
   const CHARMS = {
@@ -324,7 +326,7 @@
 
   /* ---------------- opciones (globales, no por ranura) ---------------- */
   const OPT_KEY = "ragtime_opts";
-  let OPT = { music: 0.55, sfx: 0.85, shake: true, coop: false, keys: {}, pad: {} };
+  let OPT = { music: 0.55, sfx: 0.85, shake: true, coop: false, keys: {}, pad: {}, skin: "classic", name: "PIP" };
   try { const o = JSON.parse(localStorage.getItem(OPT_KEY)); if (o) OPT = Object.assign(OPT, o); } catch (e) { }
   if (!OPT.keys) OPT.keys = {}; if (!OPT.pad) OPT.pad = {};
   applyBindings();
@@ -333,11 +335,45 @@
   applyOpts();
 
   /* ============================================================
+     LEADERBOARD ONLINE — almacén JSON público con CORS (sin cuenta).
+     El cliente LEE la lista, mezcla tu récord y la REESCRIBE recortada.
+     Se desactiva solo en Node (tests) y si LB_URL está vacío.
+     Si el bin muriera, se crea otro gratis (ver LEADERBOARD.md).
+     ============================================================ */
+  const LB_URL = "https://extendsclass.com/api/json-storage/bin/eeceefb";
+  const lbOn = () => LB_URL && typeof fetch === "function" && typeof process === "undefined";
+  let lbCache = null, lbBusy = false;
+  function lbPost(entry) {
+    if (!lbOn()) return;
+    try {
+      fetch(LB_URL).then(r => r.json()).catch(() => []).then(list => {
+        if (!Array.isArray(list)) list = [];
+        list.push(Object.assign({ at: Date.now() }, entry));
+        const byTime = (a, b) => a.time - b.time;
+        const keep = list.filter(e => e && e.mode === "rush" && typeof e.time === "number").sort(byTime).slice(0, 50)
+          .concat(list.filter(e => e && e.mode === "boss" && typeof e.time === "number").sort(byTime).slice(0, 150));
+        return fetch(LB_URL, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(keep) });
+      }).then(() => { lbCache = null; }).catch(() => {});
+    } catch (e) {}
+  }
+  function lbFetch() {
+    if (!lbOn() || lbBusy || lbCache) return;
+    lbBusy = true;
+    try {
+      fetch(LB_URL).then(r => r.json()).then(j => {
+        const l = Array.isArray(j) ? j : [];
+        lbCache = l.filter(e => e && e.mode === "rush" && typeof e.time === "number").sort((a, b) => a.time - b.time).slice(0, 5);
+        lbBusy = false;
+      }).catch(() => { lbCache = []; lbBusy = false; });
+    } catch (e) { lbCache = []; lbBusy = false; }
+  }
+
+  /* ============================================================
      ESTADO GLOBAL DE COMBATE + API para los jefes
      ============================================================ */
   let bullets = [], projs = [], hazards = [], parts = [], enemies = [], coins = [];
   let boss = null, bossDef = null, bossIndex = 0, platforms = [];
-  let shake = 0, flashScreen = 0, hitStop = 0;
+  let shake = 0, flashScreen = 0, hitStop = 0, bossHpChip = 0;
   // Mundo extra (El Reverso de Tinta): gravedad invertible + tinta que sube
   let rev = { grav: 1, inkOn: false, inkT: 0, inkDur: 0, inkPeak: GROUND, inkY: GROUND };
   // mecánicas únicas de RÉQUIEM: eco de tinta (clon retardado), viento de fuelle y lápidas temporales
@@ -407,6 +443,27 @@
     { head: "#f6ecd6", head2: "#e2d2ac", rim: "#efe2c2", liquid: "#8a2da0", liquid2: "#bd7ad8", straw: "#e8434f", short: "#c0392b", shortDk: "#8f2418", shoe: "#7a1f16", shoe2: "#b5462f", cheek: "rgba(232,120,120,0.5)" },
     { head: "#dceffb", head2: "#a9cce8", rim: "#cfe6fb", liquid: "#2a8a5a", liquid2: "#6ad0a0", straw: "#ffd24a", short: "#2f6fb0", shortDk: "#1f4d80", shoe: "#1a4a6a", shoe2: "#3a86b0", cheek: "rgba(120,180,232,0.5)" },
   ];
+  /* ---------------- TRAJES de Pip (paletas desbloqueables, selector en el título) ---------------- */
+  const SKINS = [
+    { id: "classic", name: "Clásica", pal: PLAYER_PALS[0], req: null, hint: "de serie" },
+    { id: "mint", name: "Menta", req: s => (s.defeated || []).length >= 6, hint: "vence 6 jefes",
+      pal: { head: "#eafbe8", head2: "#bfe3c0", rim: "#d8f0d4", liquid: "#2a8a5a", liquid2: "#6ad0a0", straw: "#e8434f", short: "#2e7d5b", shortDk: "#1d5a3e", shoe: "#14483a", shoe2: "#2e8a68", cheek: "rgba(120,210,150,0.5)" } },
+    { id: "royal", name: "Real", req: s => Object.values(s.grades || {}).includes("S"), hint: "saca una nota S",
+      pal: { head: "#ffe9a0", head2: "#e0b64e", rim: "#fff2c8", liquid: "#7a1020", liquid2: "#c0392b", straw: "#7a1020", short: "#a8781e", shortDk: "#7a551a", shoe: "#5a3a10", shoe2: "#a8781e", cheek: "rgba(255,190,90,0.5)" } },
+    { id: "reverse", name: "Reverso", req: s => !!(s.seenWorld && s.seenWorld[5]), hint: "cruza el espejo",
+      pal: { head: "#dceffb", head2: "#a9cce8", rim: "#cfe6fb", liquid: "#14243a", liquid2: "#3a5a7a", straw: "#bfe0ff", short: "#3a3358", shortDk: "#241e40", shoe: "#1a1430", shoe2: "#4a4472", cheek: "rgba(160,190,240,0.5)" } },
+    { id: "shadow", name: "Sombra", req: s => !!s.finished, hint: "termina el juego",
+      pal: { head: "#3a3444", head2: "#241e30", rim: "#4a4458", liquid: "#ff4fa3", liquid2: "#ff9ec8", straw: "#ff4fa3", short: "#1a1626", shortDk: "#0e0c18", shoe: "#0a0812", shoe2: "#2a2438", cheek: "rgba(255,79,163,0.35)" } },
+    { id: "marble", name: "Mármol", req: s => !!s.requiemDefeated, hint: "vence a RÉQUIEM",
+      pal: { head: "#efe9dc", head2: "#cfc5b0", rim: "#f6f0e4", liquid: "#ffd24a", liquid2: "#ffe9a0", straw: "#ffd24a", short: "#8a8478", shortDk: "#5a5548", shoe: "#3a3630", shoe2: "#6a655a", cheek: "rgba(255,210,74,0.4)" } },
+  ];
+  function skinUnlocked(sk) { if (!sk.req) return true; for (let i = 0; i < NSLOTS; i++) { const s = rawSlot(i); if (s && sk.req(s)) return true; } return false; }
+  function skinPal() { const sk = SKINS.find(s => s.id === OPT.skin) || SKINS[0]; return skinUnlocked(sk) ? sk.pal : SKINS[0].pal; }
+  function cycleSkin() {
+    const open = SKINS.filter(skinUnlocked);
+    const cur = Math.max(0, open.findIndex(s => s.id === OPT.skin));
+    OPT.skin = open[(cur + 1) % open.length].id; saveOpts(); AUDIO.sfx("select");
+  }
   const player = {
     x: 180, y: GROUND - 72, w: 40, h: 72, vx: 0, vy: 0,
     onGround: false, facing: 1, jumps: 0, jumpHeld: false, duck: false,
@@ -420,9 +477,9 @@
       this.onGround = false; this.facing = 1; this.jumps = 0; this.duck = false;
       this.dashT = 0; this.dashCD = 0; this.fireT = 0; this.chargeT = 0; this.charging = false;
       this.hp = playerMaxHp(); this.inv = 1; this.super = save.equipC === "hourglass" ? 200 : 0; this.dead = false; this.ghost = 0; this.slowT = 0; this.godT = 0; this.godInv = 0;
-      this.weaponIdx = 0; this.aimX = 1; this.aimY = 0; this.muzzle = 0; this.pinkJump = 0; this.parryGlow = 0; this.coyote = 0; this.jumpBuf = 0; this.pCombo = 0; this.landT = 0; this.stepPh = 1;
+      this.weaponIdx = 0; this.aimX = 1; this.aimY = 0; this.muzzle = 0; this.pinkJump = 0; this.parryGlow = 0; this.coyote = 0; this.jumpBuf = 0; this.pCombo = 0; this.landT = 0; this.stepPh = 1; this.dropT = 0;
       this.shield = save.equipC === "shield"; this.flight = false; this.shrink = 0;
-      this.pal = PLAYER_PALS[this.idx] || PLAYER_PALS[0];
+      this.pal = this.idx === 0 ? skinPal() : (PLAYER_PALS[this.idx] || PLAYER_PALS[0]);   // P1 viste su traje elegido
       lockToggle = false;
     },
     maxJumps() { return save.equipC === "spring" ? 2 : 1; },
@@ -453,6 +510,7 @@
       if (this.pinkJump > 0) this.pinkJump -= dt;
       if (this.parryGlow > 0) this.parryGlow -= dt;
       if (this.landT > 0) this.landT -= dt;
+      if (this.dropT > 0) this.dropT -= dt;
 
       const lock = held("lock");
       const L = held("left"), R = held("right"), U = held("up"), D = held("down");
@@ -475,7 +533,12 @@
       }
 
       if (edge && tapped("jump")) {
-        if (!this.onGround && this.tryParry()) { /* parry consumió el salto */ }
+        if (D && this.onGround && gs > 0 && this.y + this.h < GROUND - 2) {
+          // ABAJO + salto sobre una plataforma (no el suelo): te dejas caer a través
+          this.dropT = 0.2; this.onGround = false; this.vy = 3; this.y += 6; this.duck = false;
+          G.burst(this.x + this.w / 2, this.y + this.h, { n: 5, color: "#e8dcc0", smin: 1, smax: 3, up: -0.5, lmin: 0.15, lmax: 0.3 });
+        }
+        else if (!this.onGround && this.tryParry()) { /* parry consumió el salto */ }
         else if (this.onGround || (this.coyote > 0 && this.jumps === 0)) { this.dashT = 0; this.vy = -15 * gs; this.jumps = 1; this.onGround = false; this.jumpHeld = true; this.coyote = 0; AUDIO.sfx("jump"); }   // el salto CANCELA el dash (dash-jump)
         else if (this.jumps < this.maxJumps()) {
           // segundo salto (amuleto Resorte): salto "rosa" estilo parry, con más impulso
@@ -504,7 +567,7 @@
       this.onGround = false;
       if (gs > 0) {
         if (this.y + this.h >= GROUND) { this.y = GROUND - this.h; this.vy = 0; this.onGround = true; this.jumps = 0; }
-        for (const p of platforms) {
+        if (this.dropT <= 0) for (const p of platforms) {   // mientras dropT>0 se atraviesan las plataformas
           if (this.vy >= 0 && prevBottom <= p.y + 6 && this.y + this.h >= p.y && this.x + this.w > p.x && this.x < p.x + p.w) {
             this.y = p.y - this.h; this.vy = 0; this.onGround = true; this.jumps = 0;
           }
@@ -539,6 +602,9 @@
       }
 
       this.shoot(dt);
+      // ocio: si Pip se queda quieto, marca el compás (animación de espera)
+      if (this.vx === 0 && this.onGround && !held("shoot") && !this.charging && !this.duck) this.idleT = (this.idleT || 0) + dt;
+      else this.idleT = 0;
       if (this.vx !== 0 && this.onGround && !this.duck) {
         this.walkT += dt * 12;
         // polvillo en cada zancada (cuando el pie toca el suelo)
@@ -595,10 +661,10 @@
     shoot(dt) {
       const held = a => this.H(a);
       this.fireT -= dt;
-      if (this.duck) { this.charging = false; return; }
       let wid = this.curWeapon();
       const shooting = held("shoot");
-      const mx = this.x + this.w / 2 + this.aimX * 26, my = this.y + 26 + this.aimY * 20;
+      // agachado también se dispara (cañón a ras de suelo, como en los clásicos)
+      const mx = this.x + this.w / 2 + this.aimX * 26, my = this.y + (this.duck ? 50 : 26) + this.aimY * 20;
       if (save.equipC === "echo" && shooting) { this.echoT = (this.echoT || 0) - dt; if (this.echoT <= 0) { this.echoT = 0.32; bullets.push({ x: this.x + this.w / 2 - this.aimX * 28, y: my, vx: this.aimX * 12, vy: this.aimY * 12, r: 5, dmg: 2.4 * damageMult(), life: 1.2, color: "#cfe6ff", shape: "orb", homing: true }); } }
       if (wid === "charge") {
         if (shooting) { this.charging = true; this.chargeT += dt; }
@@ -629,13 +695,19 @@
       else if (wid === "needle") { this.fireT = WTUNE.needle.cd; bullets.push({ x: mx, y: my, vx: this.aimX * 17, vy: this.aimY * 17, r: 4, dmg: WTUNE.needle.dmg * dm, life: 1.0, color: "#eaf6ff", shape: "needle", ang: Math.atan2(this.aimY, this.aimX), pierce: true, cd: 0.1 }); if (Math.random() < 0.5) AUDIO.sfx("shoot"); }
       else if (wid === "comet") { this.fireT = WTUNE.comet.cd; bullets.push({ x: mx, y: my, vx: this.aimX * 7, vy: this.aimY * 7, r: 14, dmg: WTUNE.comet.dmg * dm, life: 3, color: "#ff9a3a", shape: "comet", homing: true }); AUDIO.sfx("shootBig"); }
       else if (wid === "mirror") { this.fireT = WTUNE.mirror.cd; const px = -this.aimY * 7, py = this.aimX * 7; bullets.push({ x: mx + px, y: my + py, vx: this.aimX * 15, vy: this.aimY * 15, r: 6, dmg: WTUNE.mirror.dmg * dm, life: 0.95, color: "#bfe0ff", shape: "pea" }); bullets.push({ x: mx - px, y: my - py, vx: this.aimX * 13, vy: this.aimY * 13, r: 6, dmg: WTUNE.mirror.dmg * dm, life: 1.7, color: "#9fd0ff", shape: "orb", homing: true }); AUDIO.sfx("shoot"); }
+      else if (wid === "brass") {
+        // La Orquesta (código 67676767): 3 notas doradas TELEDIRIGIDAS y PERFORANTES por ráfaga — exageradamente rota adrede
+        this.fireT = 0.08;
+        for (let i = -1; i <= 1; i++) bullets.push({ x: mx, y: my - i * 6, vx: this.aimX * 14, vy: this.aimY * 14 + i * 2.4, r: 8, dmg: 7 * dm, life: 1.6, color: "#ffd24a", shape: "orb", homing: true, pierce: true, cd: 0.14 });
+        if (Math.random() < 0.6) AUDIO.sfx("shoot");
+      }
       if (rnd) this.fireT = Math.min(this.fireT, 0.12);   // la Aleatoria dispara RÁPIDO aunque le toque un arma lenta
     },
     fireEX() {
       let wid = this.curWeapon(); if (wid === "random") wid = pick(RANDOM_POOL);
       const dm = damageMult();
       this.super -= 100; fightStats.supers++; this.muzzle = 0.12;
-      const mx = this.x + this.w / 2 + this.aimX * 26, my = this.y + 26 + this.aimY * 20;
+      const mx = this.x + this.w / 2 + this.aimX * 26, my = this.y + (this.duck ? 50 : 26) + this.aimY * 20;
       const a0 = Math.atan2(this.aimY, this.aimX);
       AUDIO.sfx("shootBig"); rumble(0.12, 0.4, 0.3); flashScreen = Math.max(flashScreen, 0.12);
       if (wid === "spread") { for (let i = 0; i < 8; i++) { const a = a0 + i * (TAU / 8); bullets.push({ x: mx, y: my, vx: Math.cos(a) * 12, vy: Math.sin(a) * 12, r: 8, dmg: 4.4 * dm, life: 0.8, color: "#ffd24a", shape: "orb" }); } }
@@ -648,6 +720,7 @@
       else if (wid === "needle") { for (let i = 0; i < 7; i++) bullets.push({ x: mx, y: my, vx: this.aimX * 18 + (i - 3) * 0.7, vy: this.aimY * 18 + (i - 3) * 0.7, r: 5, dmg: 3.4 * dm, life: 1.1, color: "#eaf6ff", shape: "needle", ang: a0, pierce: true, cd: 0 }); }
       else if (wid === "comet") { for (let i = 0; i < 3; i++) bullets.push({ x: mx, y: my, vx: Math.cos(a0 + (i - 1) * 0.3) * 8, vy: Math.sin(a0 + (i - 1) * 0.3) * 8, r: 16, dmg: 11 * dm, life: 2.4, color: "#ff9a3a", shape: "comet", homing: true, pierce: true, cd: 0, hits: 3 }); }
       else if (wid === "mirror") { for (let k = -1; k <= 1; k++) bullets.push({ x: mx + (-this.aimY) * k * 18, y: my + this.aimX * k * 18, vx: this.aimX * 16, vy: this.aimY * 16, r: 9, dmg: 7 * dm, life: 1.0, color: "#bfe0ff", shape: "orb", pierce: true, cd: 0, hits: 3 }); }
+      else if (wid === "brass") { for (let i = 0; i < 12; i++) { const a = a0 + i * (TAU / 12); bullets.push({ x: mx, y: my, vx: Math.cos(a) * 10, vy: Math.sin(a) * 10, r: 12, dmg: 9 * dm, life: 2.2, color: "#ffd24a", shape: "orb", homing: true, pierce: true, cd: 0.12, hits: 6 }); } }
       else bullets.push({ x: mx, y: my, vx: this.aimX * 18, vy: this.aimY * 18, r: 14, dmg: 18 * dm, life: 1.2, color: "#ffe27a", shape: "charge", pierce: true, hits: 3 });
       G.burst(mx, my, { n: 12, color: "#fff", smin: 2, smax: 6 });
     },
@@ -802,7 +875,10 @@
         if (this.vy * gsP < 0) { lF = cx - 8 + this.facing * 4; rF = cx + 9 + this.facing * 5; lY = footY - 12; rY = footY - 7; }   // subiendo: recogidas
         else { lF = cx - 12 + this.facing * 7; rF = cx + 12 - this.facing * 2; lY = footY - 2; rY = footY - 9; }                     // cayendo: zancada
       }
-      else { lF = cx - 11 - swing * 9; rF = cx + 11 + swing * 9; lY = footY - 4 - Math.max(0, swing) * 5; rY = footY - 4 - Math.max(0, -swing) * 5; }
+      else {
+        lF = cx - 11 - swing * 9; rF = cx + 11 + swing * 9; lY = footY - 4 - Math.max(0, swing) * 5; rY = footY - 4 - Math.max(0, -swing) * 5;
+        if ((this.idleT || 0) > 3) rY -= Math.max(0, Math.sin(time * 6.6)) * 5;   // marca el compás con la punta del pie
+      }
       ctx.strokeStyle = "#1a120a"; ctx.lineWidth = 9;
       ctx.beginPath(); ctx.moveTo(cx - 6, legY); ctx.quadraticCurveTo(cx - 13, legY + 18, lF, lY); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(cx + 6, legY); ctx.quadraticCurveTo(cx + 13, legY + 18, rF, rY); ctx.stroke();
@@ -854,8 +930,8 @@
       ctx.stroke();
       if (this.parryGlow > 0) { ctx.globalAlpha = clamp(this.parryGlow / 0.4, 0, 1) * 0.85; ctx.fillStyle = "#ff4fa3"; roundRect(-hw - 1, -hh - 2, hw * 2 + 2, hh + 14, 13); ctx.fill(); ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.stroke(); ctx.globalAlpha = 1; }
       ctx.restore();
-      // ----- brazo + arma -----
-      if (!duck) {
+      // ----- brazo + arma (también agachado: el cañón queda a ras de suelo) -----
+      {
         const sx = cx + this.facing * 5, sy = top + 28 + bobRun;
         const gx = cx + this.aimX * 30, gy = top + 28 + bobRun + this.aimY * 26;
         ctx.strokeStyle = "#1a120a"; ctx.lineWidth = 9; ctx.beginPath(); ctx.moveTo(sx, sy); ctx.quadraticCurveTo((sx + gx) / 2, (sy + gy) / 2 + 7, gx, gy); ctx.stroke();
@@ -868,6 +944,14 @@
         if (this.muzzle > 0) { ctx.fillStyle = "#fff6c0"; star(30, 0, 13, 6); ctx.fill(); ctx.fillStyle = "#ffd24a"; star(30, 0, 7, 6); ctx.fill(); }
         if (this.charging && this.chargeT > 0.15) { const c = clamp(this.chargeT / 0.9, 0, 1); ctx.fillStyle = `rgba(150,205,255,${0.4 + Math.sin(time * 20) * 0.3})`; ctx.beginPath(); ctx.arc(27, 0, 6 + c * 12, 0, TAU); ctx.fill(); }
         ctx.restore();
+      }
+      // notas que tararea mientras espera
+      if ((this.idleT || 0) > 3) {
+        const nk = ((time * 0.7) % 1);
+        ctx.save(); ctx.globalAlpha = Math.sin(nk * Math.PI) * 0.85;
+        ctx.fillStyle = "#ffd24a"; ctx.font = "16px Georgia"; ctx.textAlign = "center";
+        ctx.save(); ctx.translate(cx + this.facing * 20 + Math.sin(time * 2.5) * 4, this.y - 14 - nk * 22); ctx.rotate(Math.sin(time * 3) * 0.25); ctx.fillText(nk > 0.5 ? "♪" : "♩", 0, 0); ctx.restore();
+        ctx.restore(); ctx.globalAlpha = 1;
       }
       ctx.restore();   // fin del squash & stretch
     },
@@ -1748,8 +1832,12 @@
     const lx = ox + (label ? 24 : 4), mh = playerMaxHp();
     for (let i = 0; i < mh; i++) {
       const x = lx + 12 + i * 26, y = oy + 4, on = i < p.hp;
+      ctx.save();
+      // el último corazón LATE cuando queda solo uno
+      if (on && p.hp === 1) { const hb2 = 1 + Math.max(0, Math.sin(time * 5.5)) * 0.22; ctx.translate(x, y + 7); ctx.scale(hb2, hb2); ctx.translate(-x, -(y + 7)); }
       ctx.fillStyle = p.ghost ? "#7a7a8a" : on ? "#e8434f" : "rgba(0,0,0,0.3)"; ctx.strokeStyle = "#1a120a"; ctx.lineWidth = 2.5;
       ctx.beginPath(); ctx.moveTo(x, y + 5); ctx.bezierCurveTo(x, y - 4, x - 10, y - 4, x - 10, y + 3); ctx.bezierCurveTo(x - 10, y + 11, x, y + 14, x, y + 18); ctx.bezierCurveTo(x, y + 14, x + 10, y + 11, x + 10, y + 3); ctx.bezierCurveTo(x + 10, y - 4, x, y - 4, x, y + 5); ctx.fill(); ctx.stroke();
+      ctx.restore();
     }
     const cards = Math.floor(p.super / 100), frac = (p.super % 100) / 100;
     for (let i = 0; i < 5; i++) {
@@ -1761,6 +1849,14 @@
     }
   }
   function drawHUD() {
+    // a 1 de vida: latido rojo en los bordes de la pantalla
+    const low = players.some(p => !p.dead && !p.ghost && p.hp === 1);
+    if (low) {
+      const pu = 0.5 + Math.sin(time * 5.5) * 0.5;
+      const lg5 = ctx.createRadialGradient(W / 2, H / 2, 330, W / 2, H / 2, 760);
+      lg5.addColorStop(0, "rgba(200,30,30,0)"); lg5.addColorStop(1, `rgba(200,30,30,${0.12 + pu * 0.14})`);
+      ctx.fillStyle = lg5; ctx.fillRect(0, 0, W, H);
+    }
     decoPanel(14, 12, 326, coop ? 198 : 124);
     drawPlayerHud(player, 26, 24, coop ? "P1" : "");
     if (coop && player2) drawPlayerHud(player2, 26, 96, "P2");
@@ -1782,27 +1878,16 @@
     }
 
     if (boss) {
-      const bw = 560, bx = (W - bw) / 2, by = 30;
-      // cinta-placa art-deco tras el nombre del jefe
-      const nm = boss.name, nw = Math.max(240, nm.length * 14 + 70), ncy = by - 15;
+      // SIN barra de vida en pelea (estilo Cuphead): solo el nombre — cuánto le queda se revela al caer o al morir tú
+      const nm = boss.name, nw = Math.max(240, nm.length * 14 + 70), ncy = 22;
       ctx.fillStyle = "rgba(18,11,7,0.8)"; ctx.beginPath();
       ctx.moveTo(W / 2 - nw / 2, ncy - 15); ctx.lineTo(W / 2 + nw / 2, ncy - 15); ctx.lineTo(W / 2 + nw / 2 + 16, ncy); ctx.lineTo(W / 2 + nw / 2, ncy + 15); ctx.lineTo(W / 2 - nw / 2, ncy + 15); ctx.lineTo(W / 2 - nw / 2 - 16, ncy); ctx.closePath(); ctx.fill();
       ctx.strokeStyle = "#ffd24a"; ctx.lineWidth = 2; ctx.stroke();
       ctx.fillStyle = "#f3e3c0"; ctx.font = "bold 22px Georgia"; ctx.textAlign = "center"; ctx.fillText(nm, W / 2, ncy + 7);
-      // retrato del jefe a la izquierda de la barra
-      ctx.fillStyle = bossDef.color; ctx.beginPath(); ctx.arc(bx - 16, by + 8, 13, 0, TAU); ctx.fill(); ctx.strokeStyle = "#1a120a"; ctx.lineWidth = 3; ctx.stroke();
-      ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(bx - 20, by + 5, 4, 0, TAU); ctx.arc(bx - 11, by + 5, 4, 0, TAU); ctx.fill(); ctx.fillStyle = "#1a120a"; ctx.beginPath(); ctx.arc(bx - 19, by + 6, 2, 0, TAU); ctx.arc(bx - 10, by + 6, 2, 0, TAU); ctx.fill();
-      ctx.fillStyle = "rgba(0,0,0,0.5)"; roundRect(bx, by, bw, 16, 8); ctx.fill();
-      const bg = ctx.createLinearGradient(bx, 0, bx + bw, 0); bg.addColorStop(0, "#ff5a4a"); bg.addColorStop(0.5, "#ff8a3a"); bg.addColorStop(1, "#ffd24a");
-      ctx.fillStyle = bg; roundRect(bx + 2, by + 2, (bw - 4) * Math.max(0, boss.hp / boss.maxHp), 12, 6); ctx.fill();
-      ctx.fillStyle = "rgba(255,255,255,0.25)"; roundRect(bx + 2, by + 2, (bw - 4) * Math.max(0, boss.hp / boss.maxHp), 5, 4); ctx.fill();
-      ctx.strokeStyle = "#1a120a"; ctx.lineWidth = 3; roundRect(bx, by, bw, 16, 8); ctx.stroke();
-      // remates de rombo en los extremos (art-deco)
-      for (const ex of [bx, bx + bw]) { ctx.fillStyle = "#ffd24a"; ctx.beginPath(); ctx.moveTo(ex, by - 4); ctx.lineTo(ex + 6, by + 8); ctx.lineTo(ex, by + 20); ctx.lineTo(ex - 6, by + 8); ctx.closePath(); ctx.fill(); ctx.strokeStyle = "#1a120a"; ctx.lineWidth = 2; ctx.stroke(); }
-      const total = boss.maxPhases || 2;
-      for (let i = 0; i < total; i++) { ctx.fillStyle = i < boss.phase ? "#ffd24a" : "rgba(0,0,0,0.4)"; ctx.beginPath(); ctx.arc(bx + bw + 16 + i * 16, by + 8, 5, 0, TAU); ctx.fill(); ctx.strokeStyle = "#1a120a"; ctx.lineWidth = 2; ctx.stroke(); }
-      // etiqueta de dificultad
+      // etiqueta de dificultad + cronómetro (para cazar la nota de tiempo y los récords)
       ctx.fillStyle = DIFF.color; ctx.font = "bold 13px Trebuchet MS"; ctx.textAlign = "right"; ctx.fillText(DIFF.name.toUpperCase(), W - 28, 36);
+      ctx.fillStyle = "rgba(243,231,207,0.8)"; ctx.font = "bold 15px Georgia"; ctx.fillText("⏱ " + fightStats.time.toFixed(1) + " s", W - 28, 57);
+      if (rushActive) ctx.fillText("RUSH " + (rushIdx + 1) + "/15 · " + rushTime.toFixed(1) + " s", W - 28, 78);
     }
     // guía del tutorial
     if (curMode === "rng" && curLevel && curLevel.tutorial) {
@@ -1810,7 +1895,7 @@
       const msg = px < 360 ? "Muévete con ◀ ▶ (o stick)"
         : px < 760 ? "Salta con Z / Ⓐ  ·  (el amuleto Resorte da un 2.º salto)"
           : px < 1180 ? "Mantén X / Ⓧ para DISPARAR a los enemigos"
-            : px < 1620 ? "Esquiva con C / Ⓑ (dash)  ·  apunta con ▲ ▼"
+            : px < 1620 ? "Esquiva con C/Ⓑ (dash) · salta DURANTE el dash · ABAJO en el aire = caer rápido"
               : px < 2360 ? "Salta sobre lo ROSA y pulsa salto otra vez: ¡PARRY!"
                 : "¡Genial! Corre hasta la META →";
       ctx.textAlign = "center"; ctx.fillStyle = "rgba(20,12,8,0.82)"; roundRect(W / 2 - 270, 70, 540, 40, 10); ctx.fill(); ctx.strokeStyle = "#ffd24a"; ctx.lineWidth = 3; ctx.stroke();
@@ -2315,7 +2400,7 @@
   }
   // mascota de portada: Pip (o su gemela azul) de cuerpo entero saludando (pies en 0,0)
   function drawMascot(x, y, idx, face) {
-    const P = PLAYER_PALS[idx] || PLAYER_PALS[0], bob = Math.sin(time * 2.3 + idx * 2) * 3.5;
+    const P = (idx === 0 ? skinPal() : PLAYER_PALS[idx]) || PLAYER_PALS[0], bob = Math.sin(time * 2.3 + idx * 2) * 3.5;
     const blink = ((time + idx * 1.7) % 4.6) > 4.42;
     ctx.save(); ctx.translate(x, y); ctx.lineJoin = "round"; ctx.lineCap = "round";
     ctx.fillStyle = "rgba(0,0,0,0.3)"; ctx.beginPath(); ctx.ellipse(0, 2, 30, 8, 0, 0, TAU); ctx.fill();
@@ -2399,7 +2484,7 @@
      ============================================================ */
   function shopCards() {
     const cards = [];
-    const wk = Object.keys(WEAPONS).filter(k => !WEAPONS[k].world5 || (save.ownedW || []).includes(k));
+    const wk = Object.keys(WEAPONS).filter(k => (!WEAPONS[k].world5 && !WEAPONS[k].bonus) || (save.ownedW || []).includes(k));
     const ck = Object.keys(CHARMS).filter(k => (!CHARMS[k].world5 && !CHARMS[k].bonus) || (save.ownedC || []).includes(k));
     const rows = Math.max(Math.ceil(wk.length / 2), Math.ceil(ck.length / 2), 1);
     const x0 = 56, y0 = 196, cw = 232, gx = 12, gy = 9, ch = Math.min(80, Math.floor((632 - y0) / rows) - gy);
@@ -2617,6 +2702,7 @@
         case "comet": ctx.fillStyle = col; ctx.globalAlpha = 0.55; ctx.beginPath(); ctx.moveTo(-13, 8); ctx.quadraticCurveTo(-2, 2, 7, -2); ctx.quadraticCurveTo(-2, 7, -13, 8); ctx.fill(); ctx.globalAlpha = 1; ctx.beginPath(); ctx.arc(7, -3, 5.5, 0, TAU); ctx.fill(); ctx.lineWidth = 2; ctx.stroke(); ctx.fillStyle = "#fff"; ctx.globalAlpha = 0.7; ctx.beginPath(); ctx.arc(5, -5, 1.7, 0, TAU); ctx.fill(); ctx.globalAlpha = 1; break;
         case "mirror": ctx.strokeStyle = "#1a120a"; ctx.lineWidth = 1.5; ctx.setLineDash([2, 2]); ctx.beginPath(); ctx.moveTo(0, -13); ctx.lineTo(0, 13); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(-4, 0); ctx.lineTo(-12, -6); ctx.lineTo(-12, 6); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.beginPath(); ctx.moveTo(4, 0); ctx.lineTo(12, -6); ctx.lineTo(12, 6); ctx.closePath(); ctx.fill(); ctx.stroke(); break;
         case "random": ctx.fillStyle = col; roundRect(-11, -11, 22, 22, 4); ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#1a120a"; roundRect(-11, -11, 22, 22, 4); ctx.stroke(); ctx.fillStyle = "#1a120a"; for (const p of [[-5, -5], [5, -5], [0, 0], [-5, 5], [5, 5]]) { ctx.beginPath(); ctx.arc(p[0], p[1], 2, 0, TAU); ctx.fill(); } break;
+        case "brass": ctx.strokeStyle = col; ctx.lineWidth = 3.5; ctx.beginPath(); ctx.moveTo(-13, 2); ctx.lineTo(3, 2); ctx.stroke(); ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(3, 2); ctx.lineTo(13, -6); ctx.lineTo(13, 10); ctx.closePath(); ctx.fill(); ctx.lineWidth = 1.6; ctx.strokeStyle = ink; ctx.stroke(); ctx.fillStyle = ink; for (const vx2 of [-9, -5, -1]) ctx.fillRect(vx2, -4, 2, 5); ctx.fillStyle = "#fff"; star(9, -9, 3.5, 4); ctx.fill(); break;
         default: ctx.beginPath(); ctx.arc(0, 0, 7, 0, TAU); ctx.fill(); ctx.lineWidth = 2; ctx.stroke();
       }
     } else {
@@ -2736,7 +2822,7 @@
     spawnPlayers(fl ? 150 : 170, fl ? H / 2 - player.h / 2 : GROUND - player.h, fl);
     boss = bossDef.make(G);
     boss.maxHp = Math.round(boss.maxHp * DIFF.hp); boss.hp = boss.maxHp;
-    winDrop = "";
+    winDrop = ""; musPhase = 1;
     fightStats = { time: 0, parries: 0, supers: 0, hit: false };
     setState("intro"); introStage = 0;
     AUDIO.music((bossDef.id === "collector" || bossDef.id === "croupier") ? "boss" : "battle", { transpose: bossDef.transpose || 0 });
@@ -2749,13 +2835,14 @@
     spawnPlayers(170, GROUND - player.h, false);
     boss = SECRET_BOSS.make(G);
     boss.maxHp = Math.round(boss.maxHp * DIFF.hp); boss.hp = boss.maxHp;
+    musPhase = 1;
     fightStats = { time: 0, parries: 0, supers: 0, hit: false };
     setState("intro"); introStage = 0;
     AUDIO.music("boss", { transpose: SECRET_BOSS.transpose || 0 });
     AUDIO.sting && AUDIO.sting("go");
   }
   /* ---- Boss Rush: los 15 jefes seguidos a contrarreloj ---- */
-  let rushActive = false, rushIdx = 0, rushTime = 0, rushResult = "", rushRecord = false;
+  let rushActive = false, rushIdx = 0, rushTime = 0, rushResult = "", rushRecord = false, musPhase = 1;
   const RUSH_KEY = "ragtime_rush";
   function rushBest() { try { return JSON.parse(localStorage.getItem(RUSH_KEY)) || {}; } catch (e) { return {}; } }
   function startRush() { rushActive = true; rushIdx = 0; rushTime = 0; rushResult = ""; rushRecord = false; startBoss(0); }
@@ -2763,7 +2850,7 @@
     rushIdx++;
     if (rushIdx >= BOSSES.filter(b => b.world <= 4).length) {   // el Boss Rush son los 15 jefes principales (el Reverso queda aparte)
       const b = rushBest(), k = DIFF.key; rushRecord = (b[k] == null || rushTime < b[k]);
-      if (rushRecord) { b[k] = rushTime; try { localStorage.setItem(RUSH_KEY, JSON.stringify(b)); } catch (e) { } }
+      if (rushRecord) { b[k] = rushTime; try { localStorage.setItem(RUSH_KEY, JSON.stringify(b)); } catch (e) { } lbPost({ mode: "rush", diff: k, time: +rushTime.toFixed(1), name: OPT.name || "PIP" }); }
       rushActive = false; rushResult = "win"; flashScreen = 0.5; AUDIO.music("victory"); setState("rushdone");
     } else startBoss(rushIdx);
   }
@@ -2837,7 +2924,9 @@
      MÁQUINA DE ESTADOS
      ============================================================ */
   let state = "title", time = 0, stateT = 0, focus = 0, introStage = 0, winGrade = "B", rngBonus = 0, rngStartCoins = 0, winDrop = "";
-  function setState(s) { state = s; stateT = 0; focus = (s === "diffselect") ? ["simple", "regular", "expert", "locura"].indexOf(save.difficulty) : 0; if (focus < 0) focus = 1; }
+  // transición de IRIS (el círculo que se abre, marca de la casa en los cartoons de los 30)
+  let iris = 0; const IRIS_DUR = 0.45;
+  function setState(s) { state = s; stateT = 0; iris = IRIS_DUR; focus = (s === "diffselect") ? ["simple", "regular", "expert", "locura"].indexOf(save.difficulty) : 0; if (focus < 0) focus = 1; }
 
   /* ============================================================
      HISTORIA (todo original)
@@ -3068,7 +3157,7 @@
     { id: "expert1", icon: "🔥", name: "Virtuoso", desc: "Vence a un jefe en dificultad Experto.", check: s => (s.beatenExpert || []).length >= 1 },
     { id: "expertAll", icon: "🎩", name: "Maestro del jazz", desc: "Vence a los 15 jefes en Experto.", check: s => BOSSES.filter(b => b.world <= 4).every(b => (s.beatenExpert || []).includes(b.id)) },
     { id: "rankS", icon: "⭐", name: "Calificación perfecta", desc: "Consigue una S en cualquier jefe.", check: s => Object.values(s.grades || {}).includes("S") },
-    { id: "weapons", icon: "🔫", name: "Arsenal completo", desc: "Compra las 10 armas.", check: s => Object.keys(WEAPONS).filter(k => !WEAPONS[k].world5).every(k => (s.ownedW || []).includes(k)) },
+    { id: "weapons", icon: "🔫", name: "Arsenal completo", desc: "Compra las 10 armas.", check: s => Object.keys(WEAPONS).filter(k => !WEAPONS[k].world5 && !WEAPONS[k].bonus).every(k => (s.ownedW || []).includes(k)) },
     { id: "charms", icon: "🧿", name: "Coleccionista", desc: "Compra los 10 amuletos.", check: s => Object.keys(CHARMS).filter(k => !CHARMS[k].world5 && !CHARMS[k].bonus).every(k => (s.ownedC || []).includes(k)) },
     { id: "rng", icon: "🏃", name: "Corredor incansable", desc: "Completa los 9 run-n-gun.", check: s => RNG_LEVELS.every(L => (s.rngDone || {})[L.id]) },
     { id: "secret", icon: "🩹", name: "Lo que el Autor borró", desc: "Encuentra y vence al jefe secreto.", check: s => !!s.secretDefeated },
@@ -3335,7 +3424,7 @@
   function galleryReplay(i) { if (unlocked(i)) { AUDIO.sfx("confirm"); pendingRush = false; pendingBoss = i; setState("diffselect"); } else AUDIO.sfx("deny"); }
   /* ---- panel de CÓDIGO del Mausoleo (53149900 despierta a RÉQUIEM) ---- */
   const CODE_BTN = { x: 28, y: 26, w: 212, h: 40 };
-  const REQ_CODE = "53149900";
+  const REQ_CODE = "53149900", BRASS_CODE = "67676767";
   let codeInput = "", codeWrong = 0;
   function codeRects() {
     const r = [], kw = 78, gap = 14, x0 = W / 2 - (kw * 3 + gap * 2) / 2, y0 = 268;
@@ -3353,6 +3442,19 @@
         save.requiemUnlocked = true; persist();
         AUDIO.sting && AUDIO.sting("phase"); flashScreen = 0.55; shake = 16;
         showStory(STORY.requiemIntro, startCodeBoss);
+      } else if (codeInput === BRASS_CODE) {
+        // 67676767: LA ORQUESTA — el arma prohibida, exageradamente rota
+        codeInput = "";
+        const had = save.ownedW.includes("brass");
+        if (!had) { save.ownedW.push("brass"); if (!save.equipW[1]) save.equipW[1] = "brass"; }
+        persist();
+        AUDIO.sfx("buy"); AUDIO.sting && AUDIO.sting("phase"); flashScreen = 0.55; shake = 14;
+        showStory([{
+          t: "¡LA ORQUESTA!",
+          x: had ? "La losa zumba un riff conocido: la big band ya toca para ti. (Si la soltaste, re-equípala en la tienda.)"
+                 : "Las ocho cifras silban un riff prohibido y de la grieta sale UN ARMA EXAGERADA: toda la orquesta disparando a la vez. Queda equipada en tu segunda ranura. Úsala con vergüenza.",
+          c: "#ffd24a",
+        }], () => setState("gallery"));
       } else { AUDIO.sfx("deny"); codeWrong = 0.7; codeInput = ""; }
     }
   }
@@ -3530,6 +3632,19 @@
       bigText(rb[d[1]] != null ? fmtTime(rb[d[1]]) : "—", x, 492, 26, rb[d[1]] != null ? "#7af0a0" : "#666");
       if (rb[d[1]] != null) bigText("🏅", x - 78, 492, 20, "#ffd24a");
     });
+    // top mundial (solo si hay leaderboard configurado)
+    if (LB_URL) {
+      lbFetch();
+      bigText("🌐 TOP MUNDIAL — Boss Rush", W / 2, 552, 17, "#9fd0ff");
+      if (!lbCache) { ctx.fillStyle = "#8a7f95"; ctx.font = "13px Trebuchet MS"; ctx.textAlign = "center"; ctx.fillText("cargando…", W / 2, 576); }
+      else if (!lbCache.length) { ctx.fillStyle = "#8a7f95"; ctx.font = "13px Trebuchet MS"; ctx.textAlign = "center"; ctx.fillText("sé el primero en poner un tiempo", W / 2, 576); }
+      else lbCache.forEach((e, i) => {
+        const y2 = 574 + i * 20;
+        ctx.textAlign = "left"; ctx.fillStyle = i === 0 ? "#ffd24a" : "#f3e7cf"; ctx.font = "bold 14px Trebuchet MS";
+        ctx.fillText((i + 1) + ". " + String(e.name || "?").slice(0, 12), W / 2 - 150, y2);
+        ctx.textAlign = "right"; ctx.fillText(fmtTime(e.time) + "  (" + (e.diff || "?") + ")", W / 2 + 150, y2);
+      });
+    }
     bigText("Z/Ⓐ o Esc/Ⓑ — volver al Mausoleo", W / 2, H - 40, 16, "#caa");
   }
 
@@ -3665,6 +3780,7 @@
   }
   function update(dt, edge) {
     edgesOn = edge; stateT += dt;
+    if (iris > 0) iris -= dt;
     updateToasts(dt); checkAch(false);
     if (hitStop > 0) { hitStop = Math.max(0, hitStop - dt); if (state === "fight" || state === "rng") return; } // micro-congelación (impacto)
     if (shake > 0) shake = Math.max(0, shake - dt * 60);
@@ -3679,6 +3795,7 @@
       else if (edge && mClicked && pointIn(mouse, hr)) { AUDIO.resume(); AUDIO.music("menu"); AUDIO.sfx("confirm"); showStory(STORY.prologue, () => setState("title")); }
       else if (edge && ((mClicked && pointIn(mouse, lr)) || tapped("swap"))) { AUDIO.resume(); AUDIO.music("menu"); AUDIO.sfx("confirm"); setState("achievements"); }
       else if (edge && ((mClicked && pointIn(mouse, or)) || tapped("lock"))) { AUDIO.resume(); AUDIO.music("menu"); openOptions("title"); }
+      else if (edge && mClicked && pointIn(mouse, { x: 24, y: 630, w: 254, h: 50 })) { AUDIO.resume(); cycleSkin(); }   // selector de traje
       else if (edge && (tapped("confirm") || mClicked)) { AUDIO.resume(); AUDIO.music("menu"); AUDIO.sfx("confirm"); setState("slots"); }
     }
     else if (state === "slots") updateSlots(dt, edge);
@@ -3735,6 +3852,12 @@
     if (boss) boss.update(dt);
     // RÉQUIEM: cada movimiento sube el tono de la música y hay un fogonazo de transición
     if (boss && bossDef && bossDef.code && boss.phase !== reqPhase) { reqPhase = boss.phase; flashScreen = Math.max(flashScreen, 0.4); AUDIO.music("finale", { transpose: [0, 2, 3, 5][reqPhase - 1] || 0 }); }
+    // TODOS los jefes: al cambiar de fase la banda SUBE un semitono (la pelea se siente más urgente)
+    else if (boss && bossDef && boss.phase !== musPhase) {
+      musPhase = boss.phase;
+      const trk = (bossDef.secret || bossDef.id === "collector" || bossDef.id === "croupier") ? "boss" : "battle";
+      AUDIO.music(trk, { transpose: (bossDef.transpose || 0) + (boss.phase - 1) });
+    }
     updateReverse(dt); if (boss && boss.dead) rev.grav = 1;   // al morir el jefe, el mundo vuelve a su sitio
     // eco de tinta: un clon retardado repite TUS movimientos y castiga quedarse quieto
     if (echoT > 0) {
@@ -3776,7 +3899,7 @@
       winGrade = computeGrade();
       if (!save.grades[bossDef.id] || "DCBAS".indexOf(winGrade) > "DCBAS".indexOf(save.grades[bossDef.id])) save.grades[bossDef.id] = winGrade;
       save.stats.kills++; save.stats.parries += fightStats.parries; save.stats.playtime += fightStats.time;
-      if (!save.bossBest[bossDef.id] || fightStats.time < save.bossBest[bossDef.id]) save.bossBest[bossDef.id] = fightStats.time;
+      if (!save.bossBest[bossDef.id] || fightStats.time < save.bossBest[bossDef.id]) { save.bossBest[bossDef.id] = fightStats.time; lbPost({ mode: "boss", id: bossDef.id, diff: DIFF.key, time: +fightStats.time.toFixed(1), name: OPT.name || "PIP" }); }
       persist();
       AUDIO.sfx("ko"); rumble(0.6, 1.0, 1.0);
       if (bossDef.id === "author") { save.finished = true; persist(); flashScreen = 0.6; showStory(STORY.ending, () => { AUDIO.music("menu"); setState("title"); }); }
@@ -3907,6 +4030,15 @@
     }
     if (flashScreen > 0) { ctx.fillStyle = `rgba(255,255,255,${clamp(flashScreen, 0, 0.6)})`; ctx.fillRect(-sx, -sy, W, H); }
     ctx.restore();
+    // iris de cine que se ABRE al entrar en cada pantalla
+    if (iris > 0) {
+      const k = 1 - clamp(iris / IRIS_DUR, 0, 1), ir = 70 + Math.pow(k, 1.6) * 1480;
+      const icx = W / 2, icy = H / 2;
+      ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.arc(icx, icy, ir, 0, TAU);
+      ctx.fillStyle = "#0a0710"; ctx.fill("evenodd");
+      ctx.strokeStyle = "rgba(255,210,74,0.85)"; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(icx, icy, ir, 0, TAU); ctx.stroke();
+      ctx.restore();
+    }
     drawToasts();
     drawTouchControls();
     if (!touchOn && AUDIO.isMuted && AUDIO.isMuted()) { ctx.fillStyle = "#fff"; ctx.font = "12px Trebuchet MS"; ctx.textAlign = "right"; ctx.fillText("🔇 (M)", W - 14, H - 14); }
@@ -4001,7 +4133,26 @@
       ctx.strokeStyle = hov ? "#ffe9a0" : "rgba(255,210,74,0.45)"; ctx.lineWidth = 2; roundRect(r.x, r.y, r.w, r.h, 11); ctx.stroke();
       bigText(bt[1], r.x + r.w / 2, r.y + 27, 16, hov ? "#1a120a" : "#f3e7cf");
     });
-    ctx.textAlign = "right"; ctx.fillStyle = "#6a5a4a"; ctx.font = "12px Trebuchet MS"; ctx.fillText("v1.3", W - 16, H - 12); ctx.textAlign = "center";
+    // selector de TRAJE (esquina inferior izquierda): clic para cambiar
+    {
+      const skr = { x: 24, y: 630, w: 254, h: 50 }, hov = pointIn(mouse, skr);
+      const sk = SKINS.find(s => s.id === OPT.skin && skinUnlocked(s)) || SKINS[0];
+      const nOpen = SKINS.filter(skinUnlocked).length;
+      ctx.save(); ctx.shadowColor = "rgba(0,0,0,0.5)"; ctx.shadowBlur = hov ? 14 : 6; ctx.shadowOffsetY = 3;
+      ctx.fillStyle = hov ? "rgba(255,210,74,0.18)" : "rgba(12,8,18,0.7)"; roundRect(skr.x, skr.y, skr.w, skr.h, 12); ctx.fill(); ctx.restore();
+      ctx.strokeStyle = hov ? "#ffd24a" : "rgba(255,210,74,0.4)"; ctx.lineWidth = 2; roundRect(skr.x, skr.y, skr.w, skr.h, 12); ctx.stroke();
+      // mini-taza con la paleta del traje actual
+      ctx.save(); ctx.translate(skr.x + 28, skr.y + 27); ctx.lineJoin = "round";
+      ctx.fillStyle = sk.pal.head; roundRect(-11, -13, 22, 25, 6); ctx.fill(); ctx.strokeStyle = "#1a120a"; ctx.lineWidth = 2.5; ctx.stroke();
+      ctx.fillStyle = sk.pal.liquid; ctx.beginPath(); ctx.ellipse(0, -12, 8.5, 2.4, 0, 0, TAU); ctx.fill();
+      ctx.strokeStyle = sk.pal.straw; ctx.lineWidth = 2.2; ctx.beginPath(); ctx.moveTo(4, -12); ctx.lineTo(7, -19); ctx.stroke();
+      ctx.fillStyle = "#1a120a"; ctx.beginPath(); ctx.arc(-4, -3, 1.8, 0, TAU); ctx.arc(4, -3, 1.8, 0, TAU); ctx.fill();
+      ctx.strokeStyle = "#1a120a"; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(0, 2, 3, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke();
+      ctx.restore();
+      ctx.textAlign = "left"; ctx.fillStyle = "#ffd24a"; ctx.font = "bold 14px Trebuchet MS"; ctx.fillText("👕 Traje: " + sk.name, skr.x + 52, skr.y + 21);
+      ctx.fillStyle = "#b9a998"; ctx.font = "11px Trebuchet MS"; ctx.fillText(nOpen + "/" + SKINS.length + " · clic para cambiar · se ganan jugando", skr.x + 52, skr.y + 38);
+    }
+    ctx.textAlign = "right"; ctx.fillStyle = "#6a5a4a"; ctx.font = "12px Trebuchet MS"; ctx.fillText("v1.5", W - 16, H - 12); ctx.textAlign = "center";
   }
   function drawIntro() {
     ctx.fillStyle = "rgba(0,0,0,0.45)"; ctx.fillRect(0, 0, W, H);
@@ -4127,9 +4278,44 @@
       ctx.quadraticCurveTo(dx + 8, dl * 0.7, dx + 9, 0); ctx.fill();
       ctx.beginPath(); ctx.arc(dx, dl + 6, 4.5, 0, TAU); ctx.fill();
     }
-    ctx.save(); ctx.translate(W / 2, 250); ctx.rotate(Math.sin(time * 1.6) * 0.02);
-    bigText("HAS CAÍDO", 0, 0, 80, "#ff5a5a"); ctx.restore();
-    bigText("Ni modo… ¡otra ronda!", W / 2, 320, 26, "#f3e3c0");
+    ctx.save(); ctx.translate(W / 2, 208); ctx.rotate(Math.sin(time * 1.6) * 0.02);
+    bigText("HAS CAÍDO", 0, 0, 74, "#ff5a5a"); ctx.restore();
+    bigText("Ni modo… ¡otra ronda!", W / 2, 262, 24, "#f3e3c0");
+    // tarjeta estilo Cuphead: ¿cuánto le quedaba al jefe?
+    if (curMode === "boss" && boss && bossDef) {
+      const prog = clamp(1 - boss.hp / boss.maxHp, 0, 1);
+      const k = clamp((stateT - 0.3) / 0.9, 0, 1), fillK = prog * (1 - Math.pow(1 - k, 3));   // la barra se rellena animada
+      decoPanel(W / 2 - 300, 300, 600, 138, bossDef.color);
+      bigText("¡ASÍ LO DEJASTE!", W / 2, 332, 22, "#ffd24a");
+      const bx2 = W / 2 - 250, bw2 = 500, by2 = 350;
+      ctx.fillStyle = "rgba(0,0,0,0.5)"; roundRect(bx2, by2, bw2, 18, 9); ctx.fill();
+      const pg2 = ctx.createLinearGradient(bx2, 0, bx2 + bw2, 0); pg2.addColorStop(0, "#ff5a4a"); pg2.addColorStop(0.6, "#ff8a3a"); pg2.addColorStop(1, "#ffd24a");
+      ctx.fillStyle = pg2; roundRect(bx2 + 2, by2 + 2, Math.max(4, (bw2 - 4) * fillK), 14, 7); ctx.fill();
+      ctx.strokeStyle = "#1a120a"; ctx.lineWidth = 3; roundRect(bx2, by2, bw2, 18, 9); ctx.stroke();
+      // banderines de fase a lo largo del camino
+      const total = boss.maxPhases || 2;
+      for (let i = 1; i < total; i++) {
+        const fx2 = bx2 + bw2 * (i / total), reached = boss.phase > i;
+        ctx.strokeStyle = "#1a120a"; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(fx2, by2 - 12); ctx.lineTo(fx2, by2 + 4); ctx.stroke();
+        ctx.fillStyle = reached ? "#7af0a0" : "#5a5060"; ctx.beginPath(); ctx.moveTo(fx2, by2 - 12); ctx.lineTo(fx2 + 12, by2 - 7); ctx.lineTo(fx2, by2 - 2); ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = "#1a120a"; ctx.lineWidth = 1.5; ctx.stroke();
+      }
+      // calavera del jefe en la meta + marcador de taza donde te quedaste
+      ctx.fillStyle = bossDef.color; ctx.beginPath(); ctx.arc(bx2 + bw2 + 20, by2 + 9, 13, 0, TAU); ctx.fill(); ctx.strokeStyle = "#1a120a"; ctx.lineWidth = 2.5; ctx.stroke();
+      ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(bx2 + bw2 + 15, by2 + 6, 3.5, 0, TAU); ctx.arc(bx2 + bw2 + 25, by2 + 6, 3.5, 0, TAU); ctx.fill();
+      ctx.fillStyle = "#1a120a"; ctx.beginPath(); ctx.arc(bx2 + bw2 + 16, by2 + 7, 1.8, 0, TAU); ctx.arc(bx2 + bw2 + 26, by2 + 7, 1.8, 0, TAU); ctx.fill();
+      const mkx = bx2 + 2 + (bw2 - 4) * fillK;
+      ctx.save(); ctx.translate(mkx, by2 - 8 + Math.sin(time * 4) * 2); ctx.lineJoin = "round";
+      ctx.fillStyle = "#f6ecd6"; roundRect(-8, -14, 16, 16, 5); ctx.fill(); ctx.strokeStyle = "#1a120a"; ctx.lineWidth = 2.5; ctx.stroke();
+      ctx.fillStyle = "#8a2da0"; ctx.beginPath(); ctx.ellipse(0, -13, 6, 2, 0, 0, TAU); ctx.fill();
+      ctx.fillStyle = "#1a120a"; ctx.beginPath(); ctx.arc(-3, -7, 1.6, 0, TAU); ctx.arc(3, -7, 1.6, 0, TAU); ctx.fill();
+      ctx.restore();
+      const pct = Math.round(prog * 100);
+      ctx.fillStyle = "#f3e7cf"; ctx.font = "bold 16px Trebuchet MS"; ctx.textAlign = "center";
+      ctx.fillText("Le quitaste el " + pct + "%  ·  fase " + boss.phase + "/" + total + (pct >= 85 ? "   ¡ESTUVO CERCA!" : pct >= 50 ? "   ¡ya casi!" : ""), W / 2, by2 + 52);
+      ctx.fillStyle = "#b9a9c9"; ctx.font = "italic 12px Trebuchet MS";
+      ctx.fillText(bossDef.name + " respira aliviado… por ahora.", W / 2, by2 + 74);
+    }
     ["Reintentar", "A la isla"].forEach((t, i) => drawButtonRect({ x: W / 2 - 130, y: 470 + i * 60, w: 260, h: 48 }, t, focus === i));
   }
   function updateRushDone(dt, edge) {
