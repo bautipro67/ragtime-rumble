@@ -3632,18 +3632,56 @@
       bigText(rb[d[1]] != null ? fmtTime(rb[d[1]]) : "—", x, 492, 26, rb[d[1]] != null ? "#7af0a0" : "#666");
       if (rb[d[1]] != null) bigText("🏅", x - 78, 492, 20, "#ffd24a");
     });
-    // top mundial (solo si hay leaderboard configurado)
+    // ---- TOP MUNDIAL (leaderboard online) ----
     if (LB_URL) {
       lbFetch();
-      bigText("🌐 TOP MUNDIAL — Boss Rush", W / 2, 552, 17, "#9fd0ff");
-      if (!lbCache) { ctx.fillStyle = "#8a7f95"; ctx.font = "13px Trebuchet MS"; ctx.textAlign = "center"; ctx.fillText("cargando…", W / 2, 576); }
-      else if (!lbCache.length) { ctx.fillStyle = "#8a7f95"; ctx.font = "13px Trebuchet MS"; ctx.textAlign = "center"; ctx.fillText("sé el primero en poner un tiempo", W / 2, 576); }
-      else lbCache.forEach((e, i) => {
-        const y2 = 574 + i * 20;
-        ctx.textAlign = "left"; ctx.fillStyle = i === 0 ? "#ffd24a" : "#f3e7cf"; ctx.font = "bold 14px Trebuchet MS";
-        ctx.fillText((i + 1) + ". " + String(e.name || "?").slice(0, 12), W / 2 - 150, y2);
-        ctx.textAlign = "right"; ctx.fillText(fmtTime(e.time) + "  (" + (e.diff || "?") + ")", W / 2 + 150, y2);
-      });
+      const px3 = W / 2 - 460, py3 = 534, pw3 = 920, ph3 = 130;
+      decoPanel(px3, py3, pw3, ph3, "#9fd0ff");
+      // cabecera en cinta con globo girándose un pelín
+      ctx.fillStyle = "#1c3a52"; ctx.beginPath();
+      ctx.moveTo(W / 2 - 190, py3 - 2); ctx.lineTo(W / 2 + 190, py3 - 2); ctx.lineTo(W / 2 + 206, py3 + 14); ctx.lineTo(W / 2 + 190, py3 + 30); ctx.lineTo(W / 2 - 190, py3 + 30); ctx.lineTo(W / 2 - 206, py3 + 14); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = "#9fd0ff"; ctx.lineWidth = 2; ctx.stroke();
+      ctx.save(); ctx.translate(W / 2 - 158, py3 + 14); ctx.rotate(Math.sin(time * 1.4) * 0.14); ctx.font = "17px Georgia"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText("🌐", 0, 0); ctx.textBaseline = "alphabetic"; ctx.restore();
+      bigText("TOP MUNDIAL — BOSS RUSH", W / 2 + 12, py3 + 20, 17, "#9fd0ff");
+      if (!lbCache) {
+        // cargando: notas que bailan
+        const dots = "♪♫♪";
+        ctx.textAlign = "center"; ctx.fillStyle = "#8fa8c5"; ctx.font = "italic 15px Trebuchet MS";
+        ctx.fillText("afinando a la orquesta" + "...".slice(0, 1 + (Math.floor(time * 2.5) % 3)), W / 2, py3 + 74);
+        for (let i = 0; i < 3; i++) { ctx.save(); ctx.translate(W / 2 - 26 + i * 26, py3 + 96 + Math.sin(time * 5 + i * 1.2) * 4); ctx.globalAlpha = 0.6; ctx.font = "16px Georgia"; ctx.fillStyle = "#9fd0ff"; ctx.fillText(dots[i], 0, 0); ctx.restore(); }
+        ctx.globalAlpha = 1;
+      } else if (!lbCache.length) {
+        ctx.textAlign = "center"; ctx.fillStyle = "#8fa8c5"; ctx.font = "italic 15px Trebuchet MS";
+        ctx.fillText("La pista de baile está vacía…", W / 2, py3 + 72);
+        bigText("¡completa el BOSS RUSH y sé la primera leyenda!", W / 2, py3 + 100, 15, "#ffd24a");
+      } else {
+        const MED = ["#ffd24a", "#cfd6e0", "#d09a5a", "#5a6a80", "#5a6a80"];
+        lbCache.forEach((e, i) => {
+          const y2 = py3 + 44 + i * 17.5, rx2 = W / 2 - 300, rw2 = 600;
+          // fila-placa (la 1ª brilla)
+          ctx.fillStyle = i === 0 ? "rgba(255,210,74,0.10)" : (i % 2 ? "rgba(255,255,255,0.03)" : "rgba(10,16,26,0.35)");
+          roundRect(rx2, y2 - 12, rw2, 16, 8); ctx.fill();
+          if (i === 0) { const sk2 = (time * 0.5) % 1; if (sk2 < 0.25) { ctx.save(); ctx.beginPath(); roundRect(rx2, y2 - 12, rw2, 16, 8); ctx.clip(); ctx.fillStyle = "rgba(255,240,200,0.14)"; const sx4 = rx2 + (sk2 / 0.25) * rw2; ctx.beginPath(); ctx.moveTo(sx4 - 14, y2 - 12); ctx.lineTo(sx4 + 4, y2 - 12); ctx.lineTo(sx4 - 8, y2 + 4); ctx.lineTo(sx4 - 26, y2 + 4); ctx.fill(); ctx.restore(); } }
+          // medalla con el puesto
+          ctx.fillStyle = MED[i]; ctx.beginPath(); ctx.arc(rx2 + 16, y2 - 4, 8, 0, TAU); ctx.fill();
+          ctx.strokeStyle = "#1a120a"; ctx.lineWidth = 1.8; ctx.stroke();
+          if (i < 3) { ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(rx2 + 16, y2 - 4, 5.5, 0, TAU); ctx.stroke(); }
+          ctx.fillStyle = "#1a120a"; ctx.font = "bold 11px Trebuchet MS"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(String(i + 1), rx2 + 16, y2 - 3); ctx.textBaseline = "alphabetic";
+          // nombre · chip de dificultad · tiempo
+          ctx.textAlign = "left"; ctx.fillStyle = i === 0 ? "#ffe9a0" : "#f3e7cf"; ctx.font = "bold 14px Trebuchet MS";
+          ctx.fillText(String(e.name || "?").slice(0, 12).toUpperCase(), rx2 + 34, y2 + 1);
+          const dko = DIFFS[e.diff], dnm = dko ? dko.name : "?";
+          ctx.fillStyle = dko ? dko.color : "#888"; ctx.font = "bold 10px Trebuchet MS"; ctx.textAlign = "center";
+          const chw = dnm.length * 6.4 + 14;
+          ctx.save(); ctx.globalAlpha = 0.22; roundRect(rx2 + 336 - chw / 2, y2 - 11, chw, 14, 7); ctx.fill(); ctx.restore();
+          ctx.fillText(dnm.toUpperCase(), rx2 + 336, y2 + 0.5);
+          ctx.textAlign = "right"; ctx.fillStyle = i === 0 ? "#ffd24a" : "#cfe0f0"; ctx.font = "bold 15px Georgia";
+          ctx.fillText(fmtTime(e.time), rx2 + rw2 - 12, y2 + 1);
+        });
+        // tu mejor marca local, para picarte
+        const mine = rushBest()[save.difficulty];
+        if (mine != null) { ctx.textAlign = "right"; ctx.fillStyle = "#8fa8c5"; ctx.font = "italic 12px Trebuchet MS"; ctx.fillText("tu mejor (" + (DIFFS[save.difficulty] || {}).name + "): " + fmtTime(mine), px3 + pw3 - 20, py3 + ph3 - 12); }
+      }
     }
     bigText("Z/Ⓐ o Esc/Ⓑ — volver al Mausoleo", W / 2, H - 40, 16, "#caa");
   }

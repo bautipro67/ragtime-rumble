@@ -1,41 +1,22 @@
 <!DOCTYPE html>
 <html lang="es">
-<head>
-<meta charset="UTF-8" />
-<title>QA RAGTIME RUMBLE</title>
-<style>html,body{margin:0;padding:0;background:#140d08;overflow:hidden}canvas{display:block;width:1280px;height:720px}</style>
-</head>
+<head><meta charset="UTF-8" /><title>QA</title>
+<style>html,body{margin:0;padding:0;background:#140d08;overflow:hidden}canvas{display:block;width:1280px;height:720px}</style></head>
 <body>
   <canvas id="game" width="1280" height="720"></canvas>
-  <script src="audio.js"></script>
-  <script src="bosses.js"></script>
-  <script src="game.js"></script>
+  <script src="audio.js"></script><script src="bosses.js"></script><script src="game.js"></script>
   <script>
-    // QA: automatiza clicks para llegar a una pantalla concreta y dejarla quieta para el screenshot.
-    // Uso: qa-shot.html?shot=title|slots|map|shop|diff|fight|options
-    const shot = new URLSearchParams(location.search).get("shot") || "title";
     const cv = document.getElementById("game");
-    const click = (x, y) => {
-      const r = cv.getBoundingClientRect();
-      const cx = r.left + x * r.width / 1280, cy = r.top + y * r.height / 720;
-      cv.dispatchEvent(new MouseEvent("mousedown", { clientX: cx, clientY: cy, bubbles: true }));
-    };
-    const key = c => { document.dispatchEvent(new KeyboardEvent("keydown", { code: c, bubbles: true })); window.dispatchEvent(new KeyboardEvent("keydown", { code: c, bubbles: true })); };
-    const seq = [];
-    const at = (t, fn) => seq.push([t, fn]);
-    if (shot !== "title") {
-      at(600, () => click(640, 400));            // título → ranuras
-      if (shot !== "slots") {
-        at(1100, () => click(300, 360));         // ranura 1 (partida nueva → prólogo)
-        at(1600, () => click(640, 360));         // pasa cartela 1
-        at(1900, () => click(640, 360));         // cartela 2
-        at(2200, () => click(640, 360));         // cartela 3 → mapa
-        if (shot === "shop") at(2800, () => click(220, 560));       // nodo tienda
-        if (shot === "options") at(2800, () => click(96, 41));      // botón opciones del mapa
-        if (shot === "diff" || shot === "fight") at(2800, () => click(360, 470)); // nodo jefe 1 → dificultad
-        if (shot === "fight") at(3300, () => click(640, 400));      // Normal → intro → pelea
-      }
-    }
+    const click = (x, y) => { const r = cv.getBoundingClientRect(); cv.dispatchEvent(new MouseEvent("mousedown", { clientX: r.left + x * r.width / 1280, clientY: r.top + y * r.height / 720, bubbles: true })); };
+    const kd = c => { const e = new KeyboardEvent("keydown", { code: c, bubbles: true }); document.dispatchEvent(e); window.dispatchEvent(e); };
+    const ku = c => { const e = new KeyboardEvent("keyup", { code: c, bubbles: true }); document.dispatchEvent(e); window.dispatchEvent(e); };
+    const seq = []; const at = (t, fn) => seq.push([t, fn]);
+    const tapZ = t => { at(t, () => kd("KeyZ")); at(t + 140, () => ku("KeyZ")); };
+    at(600, () => click(640, 400));            // título → ranuras
+    at(1100, () => click(300, 360));           // ranura 1 → prólogo
+    for (const t of [1700, 2150, 2600, 3050, 3500]) tapZ(t);   // cartelas
+    at(4100, () => click(285, 300));           // nodo MAUSOLEO
+    at(4700, () => click(1134, 46));           // botón Récords
     for (const [t, fn] of seq) setTimeout(fn, t);
   </script>
 </body>
