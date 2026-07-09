@@ -3624,18 +3624,18 @@
       ctx.textAlign = "right"; ctx.fillStyle = "#ffe9a0"; ctx.fillText(r[1], W / 2 + 260, y);
     });
     const rb = rushBest();
-    decoPanel(W / 2 - 460, 390, 920, 130, "#ff8a5a");
-    bigText("⚔️ BOSS RUSH — mejores tiempos", W / 2, 424, 22, "#ffd24a");
+    decoPanel(W / 2 - 460, 382, 920, 118, "#ff8a5a");
+    bigText("⚔️ BOSS RUSH — mejores tiempos", W / 2, 414, 22, "#ffd24a");
     [["Sencillo", "simple", "#7ad08a"], ["Normal", "regular", "#ffd24a"], ["Experto", "expert", "#ff6a4a"]].forEach((d, i) => {
       const x = W / 2 - 300 + i * 300 + 150;
-      bigText(d[0], x, 456, 16, d[2]);
-      bigText(rb[d[1]] != null ? fmtTime(rb[d[1]]) : "—", x, 492, 26, rb[d[1]] != null ? "#7af0a0" : "#666");
-      if (rb[d[1]] != null) bigText("🏅", x - 78, 492, 20, "#ffd24a");
+      bigText(d[0], x, 446, 16, d[2]);
+      bigText(rb[d[1]] != null ? fmtTime(rb[d[1]]) : "—", x, 482, 26, rb[d[1]] != null ? "#7af0a0" : "#666");
+      if (rb[d[1]] != null) bigText("🏅", x - 78, 482, 20, "#ffd24a");
     });
     // ---- TOP MUNDIAL (leaderboard online) ----
     if (LB_URL) {
       lbFetch();
-      const px3 = W / 2 - 460, py3 = 534, pw3 = 920, ph3 = 130;
+      const px3 = W / 2 - 460, py3 = 516, pw3 = 920, ph3 = 150;
       decoPanel(px3, py3, pw3, ph3, "#9fd0ff");
       // cabecera en cinta con globo girándose un pelín
       ctx.fillStyle = "#1c3a52"; ctx.beginPath();
@@ -3657,7 +3657,7 @@
       } else {
         const MED = ["#ffd24a", "#cfd6e0", "#d09a5a", "#5a6a80", "#5a6a80"];
         lbCache.forEach((e, i) => {
-          const y2 = py3 + 44 + i * 17.5, rx2 = W / 2 - 300, rw2 = 600;
+          const y2 = py3 + 48 + i * 18.5, rx2 = W / 2 - 300, rw2 = 600;
           // fila-placa (la 1ª brilla)
           ctx.fillStyle = i === 0 ? "rgba(255,210,74,0.10)" : (i % 2 ? "rgba(255,255,255,0.03)" : "rgba(10,16,26,0.35)");
           roundRect(rx2, y2 - 12, rw2, 16, 8); ctx.fill();
@@ -3680,7 +3680,7 @@
         });
         // tu mejor marca local, para picarte
         const mine = rushBest()[save.difficulty];
-        if (mine != null) { ctx.textAlign = "right"; ctx.fillStyle = "#8fa8c5"; ctx.font = "italic 12px Trebuchet MS"; ctx.fillText("tu mejor (" + (DIFFS[save.difficulty] || {}).name + "): " + fmtTime(mine), px3 + pw3 - 20, py3 + ph3 - 12); }
+        if (mine != null) { ctx.textAlign = "left"; ctx.fillStyle = "#8fa8c5"; ctx.font = "italic 12px Trebuchet MS"; ctx.fillText("tu mejor (" + (DIFFS[save.difficulty] || {}).name + "): " + fmtTime(mine), px3 + 34, py3 + ph3 - 14); }
       }
     }
     bigText("Z/Ⓐ o Esc/Ⓑ — volver al Mausoleo", W / 2, H - 40, 16, "#caa");
@@ -4190,7 +4190,7 @@
       ctx.textAlign = "left"; ctx.fillStyle = "#ffd24a"; ctx.font = "bold 14px Trebuchet MS"; ctx.fillText("👕 Traje: " + sk.name, skr.x + 52, skr.y + 21);
       ctx.fillStyle = "#b9a998"; ctx.font = "11px Trebuchet MS"; ctx.fillText(nOpen + "/" + SKINS.length + " · clic para cambiar · se ganan jugando", skr.x + 52, skr.y + 38);
     }
-    ctx.textAlign = "right"; ctx.fillStyle = "#6a5a4a"; ctx.font = "12px Trebuchet MS"; ctx.fillText("v1.5", W - 16, H - 12); ctx.textAlign = "center";
+    ctx.textAlign = "right"; ctx.fillStyle = "#6a5a4a"; ctx.font = "12px Trebuchet MS"; ctx.fillText("v1.5.1", W - 16, H - 12); ctx.textAlign = "center";
   }
   function drawIntro() {
     ctx.fillStyle = "rgba(0,0,0,0.45)"; ctx.fillRect(0, 0, W, H);
