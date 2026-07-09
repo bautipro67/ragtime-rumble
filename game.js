@@ -337,35 +337,60 @@
   /* ============================================================
      LEADERBOARD ONLINE — almacén JSON público con CORS (sin cuenta).
      El cliente LEE la lista, mezcla tu récord y la REESCRIBE recortada.
-     Se desactiva solo en Node (tests) y si LB_URL está vacío.
+     Se desactiva solo en Node (tests); sin bin/clave usa el respaldo local.
      Si el bin muriera, se crea otro gratis (ver LEADERBOARD.md).
      ============================================================ */
-  const LB_URL = "https://extendsclass.com/api/json-storage/bin/eeceefb";
-  const lbOn = () => LB_URL && typeof fetch === "function" && typeof process === "undefined";
-  let lbCache = null, lbBusy = false;
-  function lbPost(entry) {
-    if (!lbOn()) return;
-    try {
-      fetch(LB_URL).then(r => r.json()).catch(() => []).then(list => {
-        if (!Array.isArray(list)) list = [];
-        list.push(Object.assign({ at: Date.now() }, entry));
-        const byTime = (a, b) => a.time - b.time;
-        const keep = list.filter(e => e && e.mode === "rush" && typeof e.time === "number").sort(byTime).slice(0, 50)
-          .concat(list.filter(e => e && e.mode === "boss" && typeof e.time === "number").sort(byTime).slice(0, 150));
-        return fetch(LB_URL, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(keep) });
-      }).then(() => { lbCache = null; }).catch(() => {});
-    } catch (e) {}
+  // LB_BIN (id del bin público) NO es secreto: leer la tabla es público.
+  // LB_KEY es la Master Key de una cuenta jsonbin DEDICADA SOLO A ESTE JUEGO (ver LEADERBOARD.md).
+  // Riesgo asumido: es pública; lo peor que puede pasar es que manipulen la tabla (se regenera).
+  const LB_BIN = "6a4f2dd6da38895dfe440a51";
+  const LB_KEY = "$2a$10$z6kEFSza0qx5gInWTZze4eBH9YIRjaWB0nz74YXeBk.ozXVmQqm/C";
+  const LB_BASE = "https://api.jsonbin.io/v3/b/";
+  const lbHasNet = () => typeof fetch === "function" && typeof process === "undefined";
+  // modo mundial = todo-o-nada: sin Access Key configurada, el juego va en Salón de la Fama local
+  const lbCanRead = () => LB_BIN && LB_KEY && lbHasNet();
+  const lbCanWrite = () => LB_BIN && LB_KEY && lbHasNet();
+  let lbCache = null, lbBusy = false, lbSource = "local";
+  // respaldo local: tabla con TUS mejores tiempos de rush por dificultad (si no hay red/bin)
+  function lbLocal() {
+    const b = rushBest(), me = (OPT.name || "TÚ").toUpperCase();
+    return Object.keys(b).filter(k => typeof b[k] === "number")
+      .map(k => ({ name: me, time: b[k], diff: k, mine: true }))
+      .sort((a, z) => a.time - z.time).slice(0, 8);
   }
   function lbFetch() {
-    if (!lbOn() || lbBusy || lbCache) return;
+    if (typeof process !== "undefined") return;   // tests
+    if (!lbCanRead()) { if (!lbCache) { lbCache = lbLocal(); lbSource = "local"; } return; }
+    if (lbBusy || lbCache) return;
     lbBusy = true;
     try {
-      fetch(LB_URL).then(r => r.json()).then(j => {
-        const l = Array.isArray(j) ? j : [];
-        lbCache = l.filter(e => e && e.mode === "rush" && typeof e.time === "number").sort((a, b) => a.time - b.time).slice(0, 5);
-        lbBusy = false;
-      }).catch(() => { lbCache = []; lbBusy = false; });
-    } catch (e) { lbCache = []; lbBusy = false; }
+      fetch(LB_BASE + LB_BIN + "/latest", { headers: { "X-Bin-Meta": "false" } })
+        .then(r => r.json()).then(j => {
+          const rush = (j && Array.isArray(j.rush)) ? j.rush : (Array.isArray(j) ? j : []);
+          const me = (OPT.name || "").toUpperCase();
+          lbCache = rush.filter(e => e && typeof e.time === "number")
+            .sort((a, z) => a.time - z.time).slice(0, 8)
+            .map(e => (me && String(e.name || "").toUpperCase() === me ? Object.assign({ mine: true }, e) : e));
+          lbSource = "online"; lbBusy = false;
+        }).catch(() => { lbCache = lbLocal(); lbSource = "local"; lbBusy = false; });
+    } catch (e) { lbCache = lbLocal(); lbSource = "local"; lbBusy = false; }
+  }
+  function lbPost(entry) {
+    if (!lbCanWrite()) return;
+    try {
+      fetch(LB_BASE + LB_BIN + "/latest", { headers: { "X-Bin-Meta": "false" } })
+        .then(r => r.json()).catch(() => ({})).then(data => {
+          data = (data && typeof data === "object" && !Array.isArray(data)) ? data : {};
+          const rush = Array.isArray(data.rush) ? data.rush : [];
+          const boss = Array.isArray(data.boss) ? data.boss : [];
+          const e = Object.assign({ at: Date.now() }, entry);
+          if (entry.mode === "rush") rush.push(e); else boss.push(e);
+          const byTime = (a, z) => a.time - z.time;
+          const keepRush = rush.filter(x => x && typeof x.time === "number").sort(byTime).slice(0, 100);
+          const keepBoss = boss.filter(x => x && typeof x.time === "number").sort(byTime).slice(0, 200);
+          return fetch(LB_BASE + LB_BIN, { method: "PUT", headers: { "Content-Type": "application/json", "X-Master-Key": LB_KEY }, body: JSON.stringify({ rush: keepRush, boss: keepBoss }) });
+        }).then(() => { lbCache = null; }).catch(() => {});
+    } catch (e) {}
   }
 
   /* ============================================================
@@ -3632,56 +3657,68 @@
       bigText(rb[d[1]] != null ? fmtTime(rb[d[1]]) : "—", x, 482, 26, rb[d[1]] != null ? "#7af0a0" : "#666");
       if (rb[d[1]] != null) bigText("🏅", x - 78, 482, 20, "#ffd24a");
     });
-    // ---- TOP MUNDIAL (leaderboard online) ----
-    if (LB_URL) {
-      lbFetch();
-      const px3 = W / 2 - 460, py3 = 516, pw3 = 920, ph3 = 150;
-      decoPanel(px3, py3, pw3, ph3, "#9fd0ff");
-      // cabecera en cinta con globo girándose un pelín
-      ctx.fillStyle = "#1c3a52"; ctx.beginPath();
-      ctx.moveTo(W / 2 - 190, py3 - 2); ctx.lineTo(W / 2 + 190, py3 - 2); ctx.lineTo(W / 2 + 206, py3 + 14); ctx.lineTo(W / 2 + 190, py3 + 30); ctx.lineTo(W / 2 - 190, py3 + 30); ctx.lineTo(W / 2 - 206, py3 + 14); ctx.closePath(); ctx.fill();
-      ctx.strokeStyle = "#9fd0ff"; ctx.lineWidth = 2; ctx.stroke();
-      ctx.save(); ctx.translate(W / 2 - 158, py3 + 14); ctx.rotate(Math.sin(time * 1.4) * 0.14); ctx.font = "17px Georgia"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText("🌐", 0, 0); ctx.textBaseline = "alphabetic"; ctx.restore();
-      bigText("TOP MUNDIAL — BOSS RUSH", W / 2 + 12, py3 + 20, 17, "#9fd0ff");
-      if (!lbCache) {
-        // cargando: notas que bailan
-        const dots = "♪♫♪";
-        ctx.textAlign = "center"; ctx.fillStyle = "#8fa8c5"; ctx.font = "italic 15px Trebuchet MS";
-        ctx.fillText("afinando a la orquesta" + "...".slice(0, 1 + (Math.floor(time * 2.5) % 3)), W / 2, py3 + 74);
-        for (let i = 0; i < 3; i++) { ctx.save(); ctx.translate(W / 2 - 26 + i * 26, py3 + 96 + Math.sin(time * 5 + i * 1.2) * 4); ctx.globalAlpha = 0.6; ctx.font = "16px Georgia"; ctx.fillStyle = "#9fd0ff"; ctx.fillText(dots[i], 0, 0); ctx.restore(); }
-        ctx.globalAlpha = 1;
-      } else if (!lbCache.length) {
-        ctx.textAlign = "center"; ctx.fillStyle = "#8fa8c5"; ctx.font = "italic 15px Trebuchet MS";
-        ctx.fillText("La pista de baile está vacía…", W / 2, py3 + 72);
-        bigText("¡completa el BOSS RUSH y sé la primera leyenda!", W / 2, py3 + 100, 15, "#ffd24a");
-      } else {
-        const MED = ["#ffd24a", "#cfd6e0", "#d09a5a", "#5a6a80", "#5a6a80"];
-        lbCache.forEach((e, i) => {
-          const y2 = py3 + 48 + i * 18.5, rx2 = W / 2 - 300, rw2 = 600;
-          // fila-placa (la 1ª brilla)
-          ctx.fillStyle = i === 0 ? "rgba(255,210,74,0.10)" : (i % 2 ? "rgba(255,255,255,0.03)" : "rgba(10,16,26,0.35)");
-          roundRect(rx2, y2 - 12, rw2, 16, 8); ctx.fill();
-          if (i === 0) { const sk2 = (time * 0.5) % 1; if (sk2 < 0.25) { ctx.save(); ctx.beginPath(); roundRect(rx2, y2 - 12, rw2, 16, 8); ctx.clip(); ctx.fillStyle = "rgba(255,240,200,0.14)"; const sx4 = rx2 + (sk2 / 0.25) * rw2; ctx.beginPath(); ctx.moveTo(sx4 - 14, y2 - 12); ctx.lineTo(sx4 + 4, y2 - 12); ctx.lineTo(sx4 - 8, y2 + 4); ctx.lineTo(sx4 - 26, y2 + 4); ctx.fill(); ctx.restore(); } }
-          // medalla con el puesto
-          ctx.fillStyle = MED[i]; ctx.beginPath(); ctx.arc(rx2 + 16, y2 - 4, 8, 0, TAU); ctx.fill();
-          ctx.strokeStyle = "#1a120a"; ctx.lineWidth = 1.8; ctx.stroke();
-          if (i < 3) { ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(rx2 + 16, y2 - 4, 5.5, 0, TAU); ctx.stroke(); }
-          ctx.fillStyle = "#1a120a"; ctx.font = "bold 11px Trebuchet MS"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(String(i + 1), rx2 + 16, y2 - 3); ctx.textBaseline = "alphabetic";
-          // nombre · chip de dificultad · tiempo
-          ctx.textAlign = "left"; ctx.fillStyle = i === 0 ? "#ffe9a0" : "#f3e7cf"; ctx.font = "bold 14px Trebuchet MS";
-          ctx.fillText(String(e.name || "?").slice(0, 12).toUpperCase(), rx2 + 34, y2 + 1);
-          const dko = DIFFS[e.diff], dnm = dko ? dko.name : "?";
-          ctx.fillStyle = dko ? dko.color : "#888"; ctx.font = "bold 10px Trebuchet MS"; ctx.textAlign = "center";
-          const chw = dnm.length * 6.4 + 14;
-          ctx.save(); ctx.globalAlpha = 0.22; roundRect(rx2 + 336 - chw / 2, y2 - 11, chw, 14, 7); ctx.fill(); ctx.restore();
-          ctx.fillText(dnm.toUpperCase(), rx2 + 336, y2 + 0.5);
-          ctx.textAlign = "right"; ctx.fillStyle = i === 0 ? "#ffd24a" : "#cfe0f0"; ctx.font = "bold 15px Georgia";
-          ctx.fillText(fmtTime(e.time), rx2 + rw2 - 12, y2 + 1);
-        });
-        // tu mejor marca local, para picarte
-        const mine = rushBest()[save.difficulty];
-        if (mine != null) { ctx.textAlign = "left"; ctx.fillStyle = "#8fa8c5"; ctx.font = "italic 12px Trebuchet MS"; ctx.fillText("tu mejor (" + (DIFFS[save.difficulty] || {}).name + "): " + fmtTime(mine), px3 + 34, py3 + ph3 - 14); }
-      }
+    // ---- LEADERBOARD (mundial vía jsonbin, o Salón de la Fama local) ----
+    lbFetch();
+    const online = lbSource === "online", acc = online ? "#9fd0ff" : "#ffd24a";
+    const px3 = W / 2 - 460, py3 = 514, pw3 = 920, ph3 = 152;
+    decoPanel(px3, py3, pw3, ph3, acc);
+    // cabecera en cinta con icono que late
+    const ttl = online ? "TOP MUNDIAL · BOSS RUSH" : "SALÓN DE LA FAMA · tus récords";
+    const cw3 = ttl.length * 8.4 + 120, hx = W / 2;
+    ctx.fillStyle = online ? "#12324a" : "#3a2a10"; ctx.beginPath();
+    ctx.moveTo(hx - cw3 / 2, py3 - 2); ctx.lineTo(hx + cw3 / 2, py3 - 2); ctx.lineTo(hx + cw3 / 2 + 16, py3 + 15); ctx.lineTo(hx + cw3 / 2, py3 + 32); ctx.lineTo(hx - cw3 / 2, py3 + 32); ctx.lineTo(hx - cw3 / 2 - 16, py3 + 15); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = acc; ctx.lineWidth = 2; ctx.stroke();
+    const ib = 1 + Math.sin(time * 3) * 0.12;
+    ctx.save(); ctx.translate(hx - cw3 / 2 + 24, py3 + 15); ctx.scale(ib, ib); ctx.font = "18px Georgia"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(online ? "🌐" : "🏆", 0, 0); ctx.textBaseline = "alphabetic"; ctx.restore();
+    bigText(ttl, hx + 22, py3 + 21, 17, acc);
+    if (!lbCache || !lbCache.length) {
+      // estado vacío con carácter
+      ctx.textAlign = "center"; ctx.fillStyle = "#9aa8bc"; ctx.font = "italic 16px Trebuchet MS";
+      ctx.fillText(online ? "La pista de baile está vacía…" : "Aún no has puesto ningún tiempo de Boss Rush.", hx, py3 + 82);
+      bigText(online ? "¡completa el BOSS RUSH y sé la primera leyenda!" : "¡corre el ⚔️ Boss Rush y estrena tu salón!", hx, py3 + 112, 16, "#ffd24a");
+      // tacita triste
+      ctx.save(); ctx.translate(hx, py3 + 60); ctx.globalAlpha = 0.5; ctx.lineJoin = "round";
+      ctx.fillStyle = "#f6ecd6"; roundRect(-10, -12, 20, 22, 6); ctx.fill(); ctx.strokeStyle = "#1a120a"; ctx.lineWidth = 2; ctx.stroke();
+      ctx.fillStyle = "#1a120a"; ctx.beginPath(); ctx.arc(-4, -3, 1.6, 0, TAU); ctx.arc(4, -3, 1.6, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(0, 6, 3, 1.15 * Math.PI, 1.85 * Math.PI); ctx.stroke(); ctx.restore(); ctx.globalAlpha = 1;
+    } else {
+      const rows = lbCache.slice(0, 5), rx2 = W / 2 - 300, rw2 = 600, rowH = 20;
+      const MED = ["#ffd24a", "#d6dde6", "#cd8a4a"];
+      rows.forEach((e, i) => {
+        const y2 = py3 + 50 + i * rowH, top3 = i < 3;
+        // fondo de fila; la tuya resaltada
+        if (e.mine) { ctx.fillStyle = "rgba(122,240,160,0.14)"; roundRect(rx2 - 6, y2 - 13, rw2 + 12, 18, 8); ctx.fill(); ctx.strokeStyle = "#7af0a0"; ctx.lineWidth = 1.5; ctx.stroke(); }
+        else { ctx.fillStyle = i % 2 ? "rgba(255,255,255,0.03)" : "rgba(10,16,26,0.30)"; roundRect(rx2, y2 - 12, rw2, 16, 7); ctx.fill(); }
+        if (i === 0) { const sk = (time * 0.55) % 1; if (sk < 0.22) { ctx.save(); ctx.beginPath(); roundRect(rx2, y2 - 12, rw2, 16, 7); ctx.clip(); ctx.fillStyle = "rgba(255,240,200,0.13)"; const sxg = rx2 + (sk / 0.22) * rw2; ctx.beginPath(); ctx.moveTo(sxg - 16, y2 - 12); ctx.lineTo(sxg + 4, y2 - 12); ctx.lineTo(sxg - 10, y2 + 4); ctx.lineTo(sxg - 30, y2 + 4); ctx.fill(); ctx.restore(); } }
+        // medalla: taza para el podio, círculo numerado para el resto
+        const mx = rx2 + 17, my = y2 - 4;
+        if (top3) {
+          ctx.save(); ctx.translate(mx, my + (i === 0 ? Math.sin(time * 3) * 0.8 : 0)); ctx.lineJoin = "round";
+          ctx.fillStyle = MED[i]; roundRect(-8, -9, 16, 17, 4); ctx.fill(); ctx.strokeStyle = "#1a120a"; ctx.lineWidth = 1.8; ctx.stroke();
+          ctx.fillStyle = "rgba(0,0,0,0.25)"; ctx.beginPath(); ctx.ellipse(0, -8, 6, 1.6, 0, 0, TAU); ctx.fill();
+          ctx.fillStyle = "#1a120a"; ctx.font = "bold 9px Trebuchet MS"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(String(i + 1), 0, 1); ctx.textBaseline = "alphabetic"; ctx.restore();
+        } else {
+          ctx.fillStyle = "#3a4658"; ctx.beginPath(); ctx.arc(mx, my, 8, 0, TAU); ctx.fill(); ctx.strokeStyle = "#1a120a"; ctx.lineWidth = 1.6; ctx.stroke();
+          ctx.fillStyle = "#cfe0f0"; ctx.font = "bold 11px Trebuchet MS"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(String(i + 1), mx, my + 1); ctx.textBaseline = "alphabetic";
+        }
+        // nombre (+ "TÚ" si es tuya)
+        ctx.textAlign = "left"; ctx.fillStyle = e.mine ? "#aaf0c0" : (i === 0 ? "#ffe9a0" : "#f3e7cf"); ctx.font = "bold 14px Trebuchet MS";
+        ctx.fillText(String(e.name || "?").slice(0, 12).toUpperCase(), rx2 + 36, y2 + 1);
+        if (e.mine) { ctx.fillStyle = "#7af0a0"; ctx.font = "bold 10px Trebuchet MS"; ctx.fillText("◄ TÚ", rx2 + 36 + ctx.measureText(String(e.name || "?").slice(0, 12).toUpperCase()).width + 44, y2 + 1); }
+        // chip de dificultad
+        const dko = DIFFS[e.diff], dnm = dko ? dko.name : "?";
+        ctx.font = "bold 10px Trebuchet MS"; ctx.textAlign = "center";
+        const chw = dnm.length * 6.4 + 16, chx = rx2 + 372;
+        ctx.save(); ctx.globalAlpha = 0.9; ctx.fillStyle = "rgba(0,0,0,0.35)"; roundRect(chx - chw / 2, y2 - 11, chw, 14, 7); ctx.fill();
+        ctx.strokeStyle = dko ? dko.color : "#888"; ctx.lineWidth = 1.2; ctx.stroke(); ctx.restore();
+        ctx.fillStyle = dko ? dko.color : "#888"; ctx.fillText(dnm.toUpperCase(), chx, y2 + 0.5);
+        // tiempo
+        ctx.textAlign = "right"; ctx.fillStyle = i === 0 ? "#ffd24a" : "#cfe0f0"; ctx.font = "bold 15px Georgia";
+        ctx.fillText(fmtTime(e.time), rx2 + rw2 - 10, y2 + 1);
+      });
+      // pie: fuente de datos + empujón
+      ctx.textAlign = "center"; ctx.font = "italic 11.5px Trebuchet MS"; ctx.fillStyle = "#8fa8c5";
+      ctx.fillText(online ? "🌐 clasificación mundial en vivo · ¡bate el récord del Boss Rush!" : "guardado en tu dispositivo · conéctate para competir en el mundial", hx, py3 + ph3 - 12);
     }
     bigText("Z/Ⓐ o Esc/Ⓑ — volver al Mausoleo", W / 2, H - 40, 16, "#caa");
   }
@@ -4190,7 +4227,7 @@
       ctx.textAlign = "left"; ctx.fillStyle = "#ffd24a"; ctx.font = "bold 14px Trebuchet MS"; ctx.fillText("👕 Traje: " + sk.name, skr.x + 52, skr.y + 21);
       ctx.fillStyle = "#b9a998"; ctx.font = "11px Trebuchet MS"; ctx.fillText(nOpen + "/" + SKINS.length + " · clic para cambiar · se ganan jugando", skr.x + 52, skr.y + 38);
     }
-    ctx.textAlign = "right"; ctx.fillStyle = "#6a5a4a"; ctx.font = "12px Trebuchet MS"; ctx.fillText("v1.5.1", W - 16, H - 12); ctx.textAlign = "center";
+    ctx.textAlign = "right"; ctx.fillStyle = "#6a5a4a"; ctx.font = "12px Trebuchet MS"; ctx.fillText("v1.5.3", W - 16, H - 12); ctx.textAlign = "center";
   }
   function drawIntro() {
     ctx.fillStyle = "rgba(0,0,0,0.45)"; ctx.fillRect(0, 0, W, H);

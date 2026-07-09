@@ -1,51 +1,43 @@
-# 🌐 Leaderboard online de RAGTIME RUMBLE
+# 🌐 Leaderboard mundial de RAGTIME RUMBLE
 
-**Estado: ✅ ACTIVO desde v1.5.** El juego ya viene con un leaderboard mundial funcionando —
-no hay que configurar nada.
+Backend: **jsonbin.io** (funciona desde el navegador: lectura pública + escritura con clave, CORS y preflight OK — verificado en vivo).
 
-## Cómo funciona
+## Estado actual
 
-- Almacén: un *bin* JSON público con CORS abierto en **extendsclass.com** (gratuito, sin cuenta):
-  - `LB_URL = "https://extendsclass.com/api/json-storage/bin/eeceefb"` (en `game.js`)
-- Cuando bates tu récord personal contra un jefe o completas el Boss Rush con récord,
-  el juego **lee** la lista global, **mezcla** tu entrada y la **reescribe** recortada
-  (top 50 de rush + top 150 de jefes).
-- La pantalla **Récords** del Mausoleo muestra el TOP 5 mundial del Boss Rush.
-- En Node (los tests) y sin conexión queda desactivado automáticamente
-  (guarda `typeof process === "undefined"` en `lbOn()`).
+- **Bin del leaderboard (ya creado):** `6a4f2dd6da38895dfe440a51`
+  - En `game.js`: `LB_BIN = "6a4f2dd6da38895dfe440a51"`
+  - Leer la tabla es **público** (no necesita clave) → todos los jugadores YA ven el TOP mundial.
+- **Escritura:** necesita una clave en `LB_KEY`. Mientras esté vacía, el juego **lee** el mundial pero **no publica** tiempos nuevos, y si no hay conexión muestra tu **Salón de la Fama local**.
 
-## Limitaciones (honestas)
+## Falta 1 paso: pegar una ACCESS KEY (no la Master Key)
 
-- **Sin protección contra trampas:** cualquiera con la URL puede escribir en el bin.
-  Para un juego pequeño es aceptable; si se llena de basura, se limpia con un PUT `[]`.
-- **Persistencia:** extendsclass puede purgar bins con meses de inactividad.
-  El uso normal del juego lo mantiene vivo.
-- El nombre publicado es `OPT.name` (por defecto `PIP`). Se puede editar en
-  localStorage (`ragtime_opts`) o añadiendo una opción de nombre en el futuro.
+⚠️ La Master Key da acceso total a tu cuenta y quedaría pública en el `game.js`. Usa una **Access Key limitada**:
 
-## Si el bin muere: crear uno nuevo (1 minuto)
+1. En **jsonbin.io** → menú de perfil → **API Keys** → pestaña **Access Keys** → **Create Access Key**.
+2. Marca **solo** estos permisos: **Bin → Read** y **Bin → Update**. Deja el resto sin marcar (nada de Delete ni de cuenta).
+3. Copia esa Access Key y pégala en `game.js`:
+   ```js
+   const LB_KEY = "TU_ACCESS_KEY_AQUÍ";
+   ```
+4. Regenera el zip y sube a GitHub/itch. ¡Listo, leaderboard mundial escribiendo!
 
-```powershell
-Invoke-WebRequest -Method Post -Uri "https://extendsclass.com/api/json-storage/bin" `
-  -Body "[]" -ContentType "application/json" -UseBasicParsing
+Si alguien ve esa Access Key en el código, como mucho puede leer/actualizar ESE bin (nunca borrar tu cuenta ni otros bins). El peor caso es que ensucien la tabla; se limpia con un PUT `{"rush":[],"boss":[]}`.
+
+## 🔴 IMPORTANTE — regenera tu Master Key
+
+La Master Key que compartiste en el chat quedó expuesta ahí. Por seguridad:
+**jsonbin.io → API Keys → regenerar / borrar** la Master Key vieja. El leaderboard NO la usa (usa la Access Key), así que regenerarla no rompe nada.
+
+## Estructura del bin
+
+```json
+{ "rush": [ {"name":"PIP","time":214.3,"diff":"expert","at":1700000000000}, ... ],
+  "boss": [ {"name":"PIP","time":41.2,"id":"spore","diff":"expert","at":...}, ... ] }
 ```
-
-La respuesta trae `"uri": "https://extendsclass.com/api/json-storage/bin/XXXXXXX"`.
-Pega esa URI en `LB_URL` (game.js), regenera el zip y resube a itch.io.
+El cliente lee, añade tu récord, ordena por tiempo y recorta (rush: 100, boss: 200). La pantalla de Récords muestra el TOP 5 de `rush` (tu fila se resalta con "◄ TÚ").
 
 ## Mantenimiento
 
-- **Ver la tabla:** abre la URL del bin en el navegador.
-- **Limpiar la tabla:**
-  ```powershell
-  Invoke-WebRequest -Method Put -Uri "https://extendsclass.com/api/json-storage/bin/eeceefb" `
-    -Body "[]" -ContentType "application/json" -UseBasicParsing
-  ```
-
-## Opción avanzada (futuro): servidor propio anti-trampas
-
-Si algún día quieres validación, un **Cloudflare Worker** gratuito con KV puede sustituir
-al bin: acepta `GET` (lista) y `POST` (entrada), valida tiempos plausibles (p. ej. rush
-entre 60 s y 2 h), sanea nombres y limita por IP. Habría que cambiar `lbPost` a un POST
-simple de la entrada (el worker hace la mezcla en el servidor). La versión anterior de
-este documento traía ese worker completo; está en el historial de git/copias si hace falta.
+- **Ver la tabla:** `https://api.jsonbin.io/v3/b/6a4f2dd6da38895dfe440a51/latest` (header `X-Bin-Meta: false`) o desde tu panel de jsonbin.
+- **Limpiar:** PUT ese bin con `{"rush":[],"boss":[]}` (con tu Access Key en `X-Access-Key`).
+- **Si el bin se pierde:** crea otro (`POST https://api.jsonbin.io/v3/b` con `X-Master-Key`, body `{"rush":[],"boss":[]}`, header `X-Bin-Private: false`) y pon el nuevo id en `LB_BIN`.
