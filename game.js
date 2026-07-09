@@ -86,7 +86,17 @@
   const isPlaying = () => state === "fight" || state === "rng";
 
   const codeKeys = [];   // teclas capturadas para el panel de CÓDIGO del Mausoleo
+  let editingName = false, nameBuffer = "";   // editor del nombre del ranking (pantalla de Récords)
   addEventListener("keydown", e => {
+    // editor de nombre del leaderboard: teclea tu alias y Enter
+    if (editingName && !e.repeat) {
+      if (e.preventDefault) e.preventDefault();
+      if (e.code === "Enter" || e.code === "NumpadEnter") { const n = nameBuffer.trim().toUpperCase().slice(0, 12); if (n) { OPT.name = n; saveOpts(); lbCache = null; if (pendingLb) { pendingLb.name = n; lbPost(pendingLb); pendingLb = null; } } editingName = false; AUDIO.sfx("confirm"); }
+      else if (e.code === "Escape") { editingName = false; AUDIO.sfx("select"); }
+      else if (e.code === "Backspace") { nameBuffer = nameBuffer.slice(0, -1); AUDIO.sfx("select"); }
+      else if (e.key && e.key.length === 1 && /[A-Za-z0-9 ._\-ÁÉÍÓÚÑáéíóúñ]/.test(e.key) && nameBuffer.length < 12) { nameBuffer += e.key; AUDIO.sfx("select"); }
+      return;
+    }
     if (state === "keys" && capture && capture.dev === "kb" && !e.repeat) {   // reasignar tecla
       if (e.preventDefault) e.preventDefault();
       if (e.code !== "Escape") { OPT.keys = OPT.keys || {}; OPT.keys[capture.action] = e.code; applyBindings(); saveOpts(); AUDIO.sfx("confirm"); } else AUDIO.sfx("select");
@@ -350,7 +360,7 @@
   // modo mundial = todo-o-nada: sin Access Key configurada, el juego va en Salón de la Fama local
   const lbCanRead = () => LB_BIN && LB_KEY && lbHasNet();
   const lbCanWrite = () => LB_BIN && LB_KEY && lbHasNet();
-  let lbCache = null, lbBusy = false, lbSource = "local";
+  let lbCache = null, lbBusy = false, lbSource = "local", lbBoss = {}, pendingLb = null;
   // respaldo local: tabla con TUS mejores tiempos de rush por dificultad (si no hay red/bin)
   function lbLocal() {
     const b = rushBest(), me = (OPT.name || "TÚ").toUpperCase();
@@ -367,9 +377,14 @@
       fetch(LB_BASE + LB_BIN + "/latest", { headers: { "X-Bin-Meta": "false" } })
         .then(r => r.json()).then(j => {
           const rush = (j && Array.isArray(j.rush)) ? j.rush : (Array.isArray(j) ? j : []);
-          const me = (OPT.name || "").toUpperCase();
+          // récord mundial por JEFE (se enseña en la ficha del Mausoleo)
+          lbBoss = {};
+          (j && Array.isArray(j.boss) ? j.boss : []).forEach(e => { if (e && e.id && typeof e.time === "number" && (!lbBoss[e.id] || e.time < lbBoss[e.id].time)) lbBoss[e.id] = e; });
+          const me = (OPT.name || "").toUpperCase(), seen = new Set();
           lbCache = rush.filter(e => e && typeof e.time === "number")
-            .sort((a, z) => a.time - z.time).slice(0, 8)
+            .sort((a, z) => a.time - z.time)
+            .filter(e => { const n = String(e.name || "?").toUpperCase(); if (seen.has(n)) return false; seen.add(n); return true; })   // cada jugador UNA vez (su mejor tiempo)
+            .slice(0, 8)
             .map(e => (me && String(e.name || "").toUpperCase() === me ? Object.assign({ mine: true }, e) : e));
           lbSource = "online"; lbBusy = false;
         }).catch(() => { lbCache = lbLocal(); lbSource = "local"; lbBusy = false; });
@@ -502,7 +517,7 @@
       this.onGround = false; this.facing = 1; this.jumps = 0; this.duck = false;
       this.dashT = 0; this.dashCD = 0; this.fireT = 0; this.chargeT = 0; this.charging = false;
       this.hp = playerMaxHp(); this.inv = 1; this.super = save.equipC === "hourglass" ? 200 : 0; this.dead = false; this.ghost = 0; this.slowT = 0; this.godT = 0; this.godInv = 0;
-      this.weaponIdx = 0; this.aimX = 1; this.aimY = 0; this.muzzle = 0; this.pinkJump = 0; this.parryGlow = 0; this.coyote = 0; this.jumpBuf = 0; this.pCombo = 0; this.landT = 0; this.stepPh = 1; this.dropT = 0;
+      this.weaponIdx = 0; this.aimX = 1; this.aimY = 0; this.muzzle = 0; this.pinkJump = 0; this.parryGlow = 0; this.coyote = 0; this.jumpBuf = 0; this.pCombo = 0; this.landT = 0; this.stepPh = 1; this.dropT = 0; this.parryBuf = 0; this.skidT = 0; this._exN = false;
       this.shield = save.equipC === "shield"; this.flight = false; this.shrink = 0;
       this.pal = this.idx === 0 ? skinPal() : (PLAYER_PALS[this.idx] || PLAYER_PALS[0]);   // P1 viste su traje elegido
       lockToggle = false;
@@ -525,6 +540,9 @@
       if (this.slowT > 0) this.slowT -= dt;   // petrificado por la Mirada de Piedra
       if (this.godInv > 0) this.godInv -= dt;
       if (save.equipC === "god") { this.godT = (this.godT || 0) + dt; if (this.godT >= 8) { this.godT = 0; this.inv = Math.max(this.inv, 2); this.godInv = 2; flashScreen = Math.max(flashScreen, 0.14); AUDIO.sfx("parry"); G.floatText(this.x + this.w / 2, this.y - 30, "¡DIOS!", "#ffd24a"); G.burst(this.x + this.w / 2, this.y + this.h / 2, { n: 22, color: "#ffd24a", smin: 2, smax: 8 }); } } else this.godT = 0;
+      // aviso de EX lista (cruzas las 100 de súper): un toque de atención, sin spam
+      if (this.super >= 100 && !this._exN) { this._exN = true; if (isPlaying()) G.floatText(this.x + this.w / 2, this.y - 26, "¡EX LISTA!", "#4ad0e0"); }
+      else if (this.super < 100 && this._exN) this._exN = false;
       // amuleto Escudo: se recompone solo tras 22 s (antes solo valía 1 vez por combate — muy caro para eso)
       if (save.equipC === "shield" && !this.shield && !this.dead) {
         this.shieldT = (this.shieldT || 0) + dt;
@@ -536,6 +554,9 @@
       if (this.parryGlow > 0) this.parryGlow -= dt;
       if (this.landT > 0) this.landT -= dt;
       if (this.dropT > 0) this.dropT -= dt;
+      if (this.skidT > 0) this.skidT -= dt;
+      // parry buffer: si pulsaste salto JUSTO antes de tocar lo rosa, el parry sale igual
+      if (this.parryBuf > 0) { this.parryBuf -= dt; if (this.tryParry()) this.parryBuf = 0; }
 
       const lock = held("lock");
       const L = held("left"), R = held("right"), U = held("up"), D = held("down");
@@ -548,6 +569,11 @@
       } else {
         let mv = 0;
         if (!lock && !this.duck) { if (L) mv -= 1; if (R) mv += 1; }
+        // derrape de dibujo animado al girar en seco mientras corres
+        if (mv !== 0 && this.onGround && mv !== this.facing && Math.abs(this.vx) > 3 && this.skidT <= 0) {
+          this.skidT = 0.14;
+          G.burst(this.x + this.w / 2 - mv * 14, this.y + this.h - 2, { n: 5, color: "#e8dcc0", smin: 1, smax: 3.5, up: 0.8, grav: 0.06, lmin: 0.2, lmax: 0.35 });
+        }
         this.vx = mv * (this.slowT > 0 ? 2.3 : 4.4);
         if (mv !== 0) this.facing = mv;
         if (edge && tapped("dash") && this.dashCD <= 0) {
@@ -571,7 +597,7 @@
           flashScreen = Math.max(flashScreen, 0.06);
           G.burst(this.x + this.w / 2, this.y + this.h / 2, { n: 14, color: "#ff7ab8", smin: 1.5, smax: 5, grav: 0.03 });
         }
-        else this.jumpBuf = 0.13; // buffer: recuerda el intento para ejecutarlo al aterrizar
+        else { this.jumpBuf = 0.13; this.parryBuf = 0.12; } // buffers: el salto se ejecuta al aterrizar y el parry si algo rosa llega enseguida
       }
       if (!held("jump")) this.jumpHeld = false;
       if (!this.jumpHeld && this.vy * gs < 0 && this.dashT <= 0) this.vy *= 0.86;
@@ -601,9 +627,10 @@
         const CEIL = 78;   // gravedad invertida: el "suelo" pasa a ser el techo
         if (this.y <= CEIL) { this.y = CEIL; this.vy = 0; this.onGround = true; this.jumps = 0; }
       }
-      // aterrizaje: squash + nubecita de polvo (principio de animación)
+      // aterrizaje: squash + nubecita de polvo (principio de animación) + golpecito de cámara si caes fuerte
       if (this.onGround && wasAir && fallV > 7) {
         this.landT = 0.14;
+        if (fallV > 13) shake = Math.max(shake, 3);
         G.burst(this.x + this.w / 2, gs > 0 ? this.y + this.h : this.y, { n: 6, color: "#e8dcc0", smin: 1, smax: 3.5, up: gs > 0 ? 1 : -1, grav: 0.08 * gs, lmin: 0.2, lmax: 0.4 });
       }
       // buffer de salto al aterrizar + coyote time
@@ -860,8 +887,12 @@
       if (this.ghost) return this.drawGhost();
       if (this.flight) return this.drawPlane();
       const blink = this.inv > 0 && this.godInv <= 0 && Math.floor(this.inv * 20) % 2 === 0;
-      ctx.fillStyle = "rgba(0,0,0,0.28)";
-      ctx.beginPath(); ctx.ellipse(this.x + this.w / 2, GROUND - 2, 28, 8, 0, 0, TAU); ctx.fill();
+      // la sombra cae sobre la PLATAFORMA que tienes debajo (no atraviesa hasta el suelo)
+      let shY = GROUND;
+      for (const pf of platforms) if (pf.x < this.x + this.w && pf.x + pf.w > this.x && pf.y >= this.y + this.h - 6 && pf.y < shY) shY = pf.y;
+      const dsh = clamp(1 - (shY - (this.y + this.h)) / 420, 0.35, 1);
+      ctx.fillStyle = `rgba(0,0,0,${0.28 * dsh})`;
+      ctx.beginPath(); ctx.ellipse(this.x + this.w / 2, shY - 2, 28 * dsh, 8 * dsh, 0, 0, TAU); ctx.fill();
       // aura dorada del amuleto Dios (invencible)
       if (this.godInv > 0) {
         const cxp = this.x + this.w / 2, cyp = this.y + this.h / 2, pu = 0.6 + Math.sin(time * 10) * 0.3;
@@ -885,6 +916,7 @@
       // ----- squash & stretch (pivote en los pies) -----
       let sqx = 1, sqy = 1;
       if (this.dashT > 0) { sqx = 1.16; sqy = 0.9; }
+      else if (this.skidT > 0) { sqx = 1.1; sqy = 0.94; }   // derrape: se aplasta un poco
       else if (air) { sqy = 1 + clamp(Math.abs(this.vy) * 0.011, 0, 0.15); sqx = 2 - sqy; }
       if (this.landT > 0) { const k = clamp(this.landT / 0.14, 0, 1); sqy = 1 - 0.17 * k; sqx = 1 + 0.2 * k; }
       const pivY = gsP > 0 ? this.y + this.h : this.y;
@@ -2875,7 +2907,12 @@
     rushIdx++;
     if (rushIdx >= BOSSES.filter(b => b.world <= 4).length) {   // el Boss Rush son los 15 jefes principales (el Reverso queda aparte)
       const b = rushBest(), k = DIFF.key; rushRecord = (b[k] == null || rushTime < b[k]);
-      if (rushRecord) { b[k] = rushTime; try { localStorage.setItem(RUSH_KEY, JSON.stringify(b)); } catch (e) { } lbPost({ mode: "rush", diff: k, time: +rushTime.toFixed(1), name: OPT.name || "PIP" }); }
+      if (rushRecord) {
+        b[k] = rushTime; try { localStorage.setItem(RUSH_KEY, JSON.stringify(b)); } catch (e) { }
+        const entry = { mode: "rush", diff: k, time: +rushTime.toFixed(1), name: OPT.name || "PIP" };
+        // si aún no elegiste nombre, el récord ESPERA a que lo firmes en la pantalla de victoria
+        if (entry.name === "PIP") pendingLb = entry; else lbPost(entry);
+      }
       rushActive = false; rushResult = "win"; flashScreen = 0.5; AUDIO.music("victory"); setState("rushdone");
     } else startBoss(rushIdx);
   }
@@ -2950,8 +2987,18 @@
      ============================================================ */
   let state = "title", time = 0, stateT = 0, focus = 0, introStage = 0, winGrade = "B", rngBonus = 0, rngStartCoins = 0, winDrop = "";
   // transición de IRIS (el círculo que se abre, marca de la casa en los cartoons de los 30)
-  let iris = 0; const IRIS_DUR = 0.45;
-  function setState(s) { state = s; stateT = 0; iris = IRIS_DUR; focus = (s === "diffselect") ? ["simple", "regular", "expert", "locura"].indexOf(save.difficulty) : 0; if (focus < 0) focus = 1; }
+  let iris = 0, irisCX = W / 2, irisCY = H / 2; const IRIS_DUR = 0.45;
+  function setState(s) {
+    const wasPaused = state === "paused";
+    state = s; stateT = 0; iris = IRIS_DUR;
+    // el iris se abre CENTRADO EN TI al entrar en combate (más cine)
+    if (s === "intro" || s === "rngintro") { irisCX = clamp(player.x + player.w / 2 - cam.x, 120, W - 120); irisCY = clamp(player.y + player.h / 2, 120, H - 120); }
+    else { irisCX = W / 2; irisCY = H / 2; }
+    // en pausa la banda toca BAJITO desde el foso; al volver, a plena voz
+    if (s === "paused") { if (AUDIO.setVol) AUDIO.setVol(OPT.music * 0.35, OPT.sfx); }
+    else if (wasPaused) applyOpts();
+    focus = (s === "diffselect") ? ["simple", "regular", "expert", "locura"].indexOf(save.difficulty) : 0; if (focus < 0) focus = 1;
+  }
 
   /* ============================================================
      HISTORIA (todo original)
@@ -3622,14 +3669,18 @@
       if (grade) { ctx.fillStyle = "#c0392b"; ctx.beginPath(); ctx.arc(r.x + 18, r.y + 22, 13, 0, TAU); ctx.fill(); ctx.strokeStyle = "#1a120a"; ctx.lineWidth = 2; ctx.stroke(); ctx.strokeStyle = "rgba(255,255,255,0.35)"; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(r.x + 18, r.y + 22, 9.5, 0, TAU); ctx.stroke(); bigText(grade, r.x + 18, r.y + 27, 14, "#ffd24a"); }
       ctx.restore();
     }
-    const d = BOSSES[focus], unl = unlocked(focus), bt = save.bossBest[d.id];
+    lbFetch();
+    const d = BOSSES[focus], unl = unlocked(focus), bt = save.bossBest[d.id], wr = lbBoss[d.id];
     ctx.fillStyle = "rgba(20,12,8,0.72)"; roundRect(80, H - 88, W - 160, 62, 12); ctx.fill(); ctx.strokeStyle = "#ffd24a"; ctx.lineWidth = 2; ctx.stroke();
     bigText(unl ? d.name : "Jefe bloqueado", W / 2, H - 60, 20, "#ffd24a");
     ctx.fillStyle = "#f3e7cf"; ctx.font = "13px Trebuchet MS"; ctx.textAlign = "center";
-    ctx.fillText(unl ? (d.subtitle + (bt ? "   ·   mejor tiempo: " + fmtTime(bt) : "") + (save.grades[d.id] ? "   ·   nota " + save.grades[d.id] : "")) : "Vence al jefe anterior para desbloquearlo", W / 2, H - 40);
+    ctx.fillText(unl ? (d.subtitle + (bt ? "   ·   mejor tiempo: " + fmtTime(bt) : "") + (save.grades[d.id] ? "   ·   nota " + save.grades[d.id] : "") + (wr ? "   ·   🌐 mundial " + fmtTime(wr.time) + " (" + String(wr.name || "?").slice(0, 10).toUpperCase() + ")" : "")) : "Vence al jefe anterior para desbloquearlo", W / 2, H - 40);
     bigText(unl ? "Z/Ⓐ — repetir combate    ·    Esc/Ⓑ volver" : "Esc/Ⓑ volver", W / 2, H - 16, 13, "#caa");
   }
+  const NAME_BTN = { x: W - 262, y: 26, w: 234, h: 40 };
   function updateRecords(dt, edge) {
+    if (editingName) return;   // mientras escribes tu nombre, la pantalla no navega
+    if (mClicked && pointIn(mouse, NAME_BTN)) { editingName = true; nameBuffer = OPT.name === "PIP" ? "" : (OPT.name || ""); AUDIO.sfx("select"); return; }
     if (edge && (tapped("confirm") || tapped("back") || tapped("pause") || tapped("swap"))) { AUDIO.sfx("select"); setState("gallery"); }
     else if (mClicked) { AUDIO.sfx("select"); setState("gallery"); }
   }
@@ -3720,7 +3771,29 @@
       ctx.textAlign = "center"; ctx.font = "italic 11.5px Trebuchet MS"; ctx.fillStyle = "#8fa8c5";
       ctx.fillText(online ? "🌐 clasificación mundial en vivo · ¡bate el récord del Boss Rush!" : "guardado en tu dispositivo · conéctate para competir en el mundial", hx, py3 + ph3 - 12);
     }
+    // botón para elegir TU nombre del ranking
+    drawButtonRect(NAME_BTN, "✏️ " + (OPT.name || "PIP"), editingName);
+    ctx.fillStyle = "#8fa8c5"; ctx.font = "italic 11px Trebuchet MS"; ctx.textAlign = "center";
+    ctx.fillText("tu nombre en el ranking", NAME_BTN.x + NAME_BTN.w / 2, NAME_BTN.y + NAME_BTN.h + 14);
     bigText("Z/Ⓐ o Esc/Ⓑ — volver al Mausoleo", W / 2, H - 40, 16, "#caa");
+    drawNameModal();
+  }
+  // modal de edición del nombre (compartido por Récords y la victoria del Boss Rush)
+  function drawNameModal() {
+    if (!editingName) return;
+    ctx.fillStyle = "rgba(6,4,10,0.72)"; ctx.fillRect(0, 0, W, H);
+    decoPanel(W / 2 - 260, H / 2 - 110, 520, 210, "#9fd0ff");
+    bigText("✏️ TU NOMBRE EN EL RANKING", W / 2, H / 2 - 66, 22, "#9fd0ff");
+    // campo con caret parpadeante
+    ctx.fillStyle = "#10141e"; roundRect(W / 2 - 190, H / 2 - 38, 380, 52, 10); ctx.fill();
+    ctx.strokeStyle = "#9fd0ff"; ctx.lineWidth = 2.5; roundRect(W / 2 - 190, H / 2 - 38, 380, 52, 10); ctx.stroke();
+    const shown = nameBuffer.toUpperCase();
+    ctx.font = "bold 28px Georgia"; ctx.textAlign = "center"; ctx.fillStyle = "#ffe9a0";
+    const caret = Math.floor(time * 2.5) % 2 === 0 ? "▏" : " ";
+    ctx.fillText((shown || " ") + caret, W / 2, H / 2 - 1);
+    ctx.fillStyle = "#8fa8c5"; ctx.font = "12px Trebuchet MS";
+    ctx.fillText(shown.length + "/12 letras · así te verán en el TOP mundial", W / 2, H / 2 + 34);
+    bigText("Intro — guardar   ·   Esc — cancelar", W / 2, H / 2 + 74, 16, "#caa");
   }
 
   /* ============================================================
@@ -4108,7 +4181,7 @@
     // iris de cine que se ABRE al entrar en cada pantalla
     if (iris > 0) {
       const k = 1 - clamp(iris / IRIS_DUR, 0, 1), ir = 70 + Math.pow(k, 1.6) * 1480;
-      const icx = W / 2, icy = H / 2;
+      const icx = irisCX, icy = irisCY;
       ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.arc(icx, icy, ir, 0, TAU);
       ctx.fillStyle = "#0a0710"; ctx.fill("evenodd");
       ctx.strokeStyle = "rgba(255,210,74,0.85)"; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(icx, icy, ir, 0, TAU); ctx.stroke();
@@ -4227,7 +4300,7 @@
       ctx.textAlign = "left"; ctx.fillStyle = "#ffd24a"; ctx.font = "bold 14px Trebuchet MS"; ctx.fillText("👕 Traje: " + sk.name, skr.x + 52, skr.y + 21);
       ctx.fillStyle = "#b9a998"; ctx.font = "11px Trebuchet MS"; ctx.fillText(nOpen + "/" + SKINS.length + " · clic para cambiar · se ganan jugando", skr.x + 52, skr.y + 38);
     }
-    ctx.textAlign = "right"; ctx.fillStyle = "#6a5a4a"; ctx.font = "12px Trebuchet MS"; ctx.fillText("v1.5.3", W - 16, H - 12); ctx.textAlign = "center";
+    ctx.textAlign = "right"; ctx.fillStyle = "#6a5a4a"; ctx.font = "12px Trebuchet MS"; ctx.fillText("v1.5.5", W - 16, H - 12); ctx.textAlign = "center";
   }
   function drawIntro() {
     ctx.fillStyle = "rgba(0,0,0,0.45)"; ctx.fillRect(0, 0, W, H);
@@ -4393,8 +4466,14 @@
     }
     ["Reintentar", "A la isla"].forEach((t, i) => drawButtonRect({ x: W / 2 - 130, y: 470 + i * 60, w: 260, h: 48 }, t, focus === i));
   }
+  const RUSH_NAME_BTN = { x: W / 2 - 160, y: 534, w: 320, h: 42 };
   function updateRushDone(dt, edge) {
-    if (edge && (tapped("confirm") || tapped("back") || tapped("pause") || mClicked)) { AUDIO.sfx("confirm"); AUDIO.music("menu"); setState("map"); }
+    if (editingName) return;   // escribiendo tu nombre: la pantalla espera
+    if (pendingLb && mClicked && pointIn(mouse, RUSH_NAME_BTN)) { editingName = true; nameBuffer = ""; AUDIO.sfx("select"); return; }
+    if (edge && (tapped("confirm") || tapped("back") || tapped("pause") || mClicked)) {
+      if (pendingLb) { lbPost(pendingLb); pendingLb = null; }   // sin firmar: publica como PIP para no perder el récord
+      AUDIO.sfx("confirm"); AUDIO.music("menu"); setState("map");
+    }
   }
   function drawRushDone() {
     ctx.fillStyle = "rgba(0,0,0,0.66)"; ctx.fillRect(0, 0, W, H);
@@ -4419,6 +4498,14 @@
     if (win && rushRecord) bigText("★ ¡NUEVO RÉCORD! (" + DIFF.name + ")", W / 2, 362, 24, "#7af0a0");
     else if (b != null) bigText("Mejor (" + DIFF.name + "): " + b.toFixed(1) + " s", W / 2, 362, 20, "#caa");
     drawButtonRect({ x: W / 2 - 130, y: 470, w: 260, h: 48 }, "A la isla", true);
+    // récord sin firmar: ¡ponle tu nombre antes de publicarlo al mundo!
+    if (pendingLb) {
+      const pu = 0.75 + Math.sin(time * 4) * 0.25;
+      ctx.save(); ctx.globalAlpha = pu; drawButtonRect(RUSH_NAME_BTN, "✏️ FIRMAR MI RÉCORD", false); ctx.restore(); ctx.globalAlpha = 1;
+      ctx.fillStyle = "#9fd0ff"; ctx.font = "italic 12px Trebuchet MS"; ctx.textAlign = "center";
+      ctx.fillText("tu tiempo irá al TOP mundial — elige el nombre con el que aparecerá", W / 2, RUSH_NAME_BTN.y + RUSH_NAME_BTN.h + 16);
+    }
+    drawNameModal();
   }
 
   function drawRngIntro() {
