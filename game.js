@@ -66,7 +66,7 @@
   const held = a => !!IN[0].now[a];
   const tapped = a => edgesOn && !!IN[0].pressed[a];
 
-  let mouse = { x: -99, y: -99 }, mClicked = false;
+  let mouse = { x: -99, y: -99 }, mClicked = false, mDown = false;
 
   /* ---------------- táctil (móvil) ---------------- */
   let touchOn = false, lockToggle = false;
@@ -82,6 +82,39 @@
     { act: "lock", x: 104, y: 300, r: 50, label: "FIJAR", col: "#e0a0ff", toggle: true },
   ];
   const TPAUSE = { x: 1244, y: 42, r: 28 }, TFULL = { x: 1180, y: 42, r: 28 }, TMUTE = { x: 1116, y: 42, r: 28 };
+  // ---- editor de controles táctiles: mover y redimensionar joystick + botones ----
+  const TBTN_DEF = TBTN.map(b => ({ act: b.act, x: b.x, y: b.y, r: b.r })), STICK_DEF = { x: 176, y: 556, r: 98 };
+  let teSel = -1, teDrag = false;
+  function teList() {
+    return [{ id: "stick", x: stick.cx, y: stick.cy, r: stick.r, label: "MOVER", col: "#f3e7cf" }]
+      .concat(TBTN.map(b => ({ id: b.act, x: b.x, y: b.y, r: b.r, label: b.label, col: b.col })));
+  }
+  function teMove(id, x, y) {
+    if (id === "stick") { stick.cx = x; stick.cy = y; stick.kx = x; stick.ky = y; }
+    else { const b = TBTN.find(t => t.act === id); if (b) { b.x = x; b.y = y; } }
+  }
+  function teResize(d) {
+    const L = teList()[teSel]; if (!L) return;
+    if (L.id === "stick") stick.r = clamp(stick.r + d, 64, 150);
+    else { const b = TBTN.find(t => t.act === L.id); if (b) b.r = clamp(b.r + d, 34, 110); }
+  }
+  function saveTouchLayout() {
+    OPT.touch = { stick: { x: stick.cx, y: stick.cy, r: stick.r } };
+    for (const b of TBTN) OPT.touch[b.act] = { x: b.x, y: b.y, r: b.r };
+    saveOpts();
+  }
+  function resetTouchLayout() {
+    stick.cx = STICK_DEF.x; stick.cy = STICK_DEF.y; stick.r = STICK_DEF.r; stick.kx = stick.cx; stick.ky = stick.cy;
+    for (const b of TBTN) { const d = TBTN_DEF.find(t => t.act === b.act); if (d) { b.x = d.x; b.y = d.y; b.r = d.r; } }
+    delete OPT.touch; saveOpts();
+  }
+  function applyTouchLayout() {
+    const t = OPT.touch; if (!t) return;
+    try {
+      if (t.stick) { stick.cx = clamp(t.stick.x, 50, W - 50); stick.cy = clamp(t.stick.y, 90, H - 50); stick.r = clamp(t.stick.r || 98, 64, 150); stick.kx = stick.cx; stick.ky = stick.cy; }
+      for (const b of TBTN) { const o = t[b.act]; if (o) { b.x = clamp(o.x, 50, W - 50); b.y = clamp(o.y, 90, H - 50); b.r = clamp(o.r || b.r, 34, 110); } }
+    } catch (e) { }
+  }
   const inCircle = (p, c) => Math.hypot(p.x - c.x, p.y - c.y) <= c.r + 12;
   const isPlaying = () => state === "fight" || state === "rng";
 
@@ -120,7 +153,8 @@
     return { x: (e.clientX - r.left) * (W / r.width), y: (e.clientY - r.top) * (H / r.height) };
   }
   cv.addEventListener("mousemove", e => { mouse = canvasPos(e); });
-  cv.addEventListener("mousedown", e => { mouse = canvasPos(e); mClicked = true; AUDIO.resume(); });
+  cv.addEventListener("mousedown", e => { mouse = canvasPos(e); mClicked = true; mDown = true; AUDIO.resume(); });
+  addEventListener("mouseup", () => { mDown = false; });
 
   function setStick(p) {
     let dx = p.x - stick.cx, dy = p.y - stick.cy; const d = Math.hypot(dx, dy), max = stick.r;
@@ -129,36 +163,47 @@
     stick.mag = Math.min(1, d / max); stick.vx = dx / max; stick.vy = dy / max;
   }
   function controlAt(p) {
-    for (const b of TBTN) if (inCircle(p, b)) return { type: "btn", b };   // los botones tienen prioridad
-    if (inCircle(p, { x: stick.cx, y: stick.cy, r: stick.r + 40 }) || (p.x < W * 0.44 && p.y > H * 0.34)) return { type: "stick" };
+    const mapMode = state === "map";   // en el mapa solo existen el joystick y el botón ENTRAR
+    for (const b of TBTN) { if (mapMode && b.act !== "jump") continue; if (inCircle(p, b)) return { type: "btn", b }; }   // los botones tienen prioridad
+    if (inCircle(p, { x: stick.cx, y: stick.cy, r: stick.r + 40 }) || (!mapMode && p.x < W * 0.44 && p.y > H * 0.34)) return { type: "stick" };
     return null;
   }
   cv.addEventListener("pointerdown", e => {
     if (e.pointerType === "mouse") return;        // el ratón usa mousedown
     touchOn = true; AUDIO.resume();
     const p = canvasPos(e); if (e.preventDefault) e.preventDefault();
+    if (state === "touchedit") { mouse = p; mClicked = true; mDown = true; pointers.set(e.pointerId, "edit"); return; }   // editor de controles
     if (inCircle(p, TFULL)) { toggleFull(); return; }
     if (inCircle(p, TMUTE)) { AUDIO.toggleMute(); return; }
-    if (isPlaying()) {
-      if (inCircle(p, TPAUSE)) { touchAct.pause = true; pointers.set(e.pointerId, "pause"); return; }
+    if (isPlaying() || state === "map") {          // el joystick también funciona en el MAPA (pasear por la isla)
+      if (isPlaying() && inCircle(p, TPAUSE)) { touchAct.pause = true; pointers.set(e.pointerId, "pause"); return; }
+      // en el mapa, tocar directamente un nodo o un personaje GANA al joystick
+      if (state === "map") {
+        for (const nd of mapNodes()) if (Math.hypot(p.x - nd.x, p.y - nd.y) < 50) { mouse = p; mClicked = true; return; }
+        for (const c of worldNpcs()) if (Math.hypot(p.x - c.x, p.y - c.y) < 40) { mouse = p; mClicked = true; return; }
+      }
       const hit = controlAt(p);
       if (hit) {
         if (hit.type === "stick") { stick.id = e.pointerId; setStick(p); pointers.set(e.pointerId, "stick"); }
         else if (hit.b.toggle) { lockToggle = !lockToggle; AUDIO.sfx("select"); haptic(14); pointers.set(e.pointerId, "tap"); }
         else { touchAct[hit.b.act] = true; haptic(12); pointers.set(e.pointerId, hit.b.act); }
+        return;
       }
-      return;
+      if (isPlaying()) return;
+      // en el mapa, tocar FUERA de los controles sigue siendo un toque (entrar a nodos, hablar, botones)
     }
     mouse = p; mClicked = true;                    // menús/overlays: tocar = clic
   });
   cv.addEventListener("pointermove", e => {
     if (e.pointerType === "mouse") return;
     if (pointers.get(e.pointerId) === "stick") { setStick(canvasPos(e)); if (e.preventDefault) e.preventDefault(); }
+    else if (pointers.get(e.pointerId) === "edit") { mouse = canvasPos(e); if (e.preventDefault) e.preventDefault(); }
   });
   function endPointer(e) {
     const role = pointers.get(e.pointerId); if (role === undefined) return;
     if (role === "stick") { stick.id = null; stick.mag = 0; stick.vx = stick.vy = 0; stick.kx = stick.cx; stick.ky = stick.cy; }
     else if (role === "pause") touchAct.pause = false;
+    else if (role === "edit") mDown = false;
     else if (role !== "tap") touchAct[role] = false;
     pointers.delete(e.pointerId);
   }
@@ -207,6 +252,7 @@
     n.pause = kb("pause") || gp.btn.pause; n.confirm = kb("confirm") || gp.btn.confirm; n.back = kb("back") || gp.btn.back;
     if (primary) {
       for (const a of ["jump", "shoot", "dash", "super", "swap", "pause"]) if (touchAct[a]) n[a] = true;
+      if (touchAct.jump) n.confirm = true;   // en el mapa/menús el botón táctil de salto es ENTRAR
       if (lockToggle) n.lock = true;
       if (stick.mag > 0.25) { if (stick.vx < -0.4) n.left = true; if (stick.vx > 0.4) n.right = true; if (stick.vy < -0.4) n.up = true; if (stick.vy > 0.4) n.down = true; }
     }
@@ -340,6 +386,7 @@
   try { const o = JSON.parse(localStorage.getItem(OPT_KEY)); if (o) OPT = Object.assign(OPT, o); } catch (e) { }
   if (!OPT.keys) OPT.keys = {}; if (!OPT.pad) OPT.pad = {};
   applyBindings();
+  applyTouchLayout();   // recoloca joystick/botones táctiles según lo guardado
   function saveOpts() { try { localStorage.setItem(OPT_KEY, JSON.stringify(OPT)); } catch (e) { } }
   function applyOpts() { if (AUDIO.setVol) AUDIO.setVol(OPT.music, OPT.sfx); }
   applyOpts();
@@ -2139,18 +2186,20 @@
       ctx.strokeStyle = "rgba(255,255,255,0.55)"; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(c.x, c.y, c.r, 0, TAU); ctx.stroke();
       ctx.fillStyle = "#fff"; ctx.font = "bold 18px Trebuchet MS"; ctx.fillText(lbl, c.x, c.y + 1);
     }
-    if (isPlaying()) {
-      // joystick: base con anillo + perilla que sigue al dedo
+    if (isPlaying() || state === "map") {
+      // joystick: base con anillo + perilla que sigue al dedo (también en el MAPA para pasear)
       ctx.save(); ctx.shadowColor = "rgba(0,0,0,0.5)"; ctx.shadowBlur = 8; ctx.shadowOffsetY = 3;
       ctx.fillStyle = "rgba(20,12,8,0.42)"; ctx.beginPath(); ctx.arc(stick.cx, stick.cy, stick.r, 0, TAU); ctx.fill(); ctx.restore();
       ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(stick.cx, stick.cy, stick.r, 0, TAU); ctx.stroke();
       ctx.strokeStyle = "rgba(255,255,255,0.16)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(stick.cx, stick.cy, stick.r - 16, 0, TAU); ctx.stroke();
       ctx.save(); ctx.shadowColor = "rgba(0,0,0,0.5)"; ctx.shadowBlur = 6; ctx.shadowOffsetY = 2;
-      ctx.fillStyle = stick.mag > 0.1 ? "#ffe9b8" : "rgba(243,231,207,0.95)"; ctx.beginPath(); ctx.arc(stick.kx, stick.ky, 48, 0, TAU); ctx.fill(); ctx.restore();
-      ctx.strokeStyle = "#1a120a"; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(stick.kx, stick.ky, 48, 0, TAU); ctx.stroke();
+      ctx.fillStyle = stick.mag > 0.1 ? "#ffe9b8" : "rgba(243,231,207,0.95)"; ctx.beginPath(); ctx.arc(stick.kx, stick.ky, Math.min(48, stick.r * 0.55), 0, TAU); ctx.fill(); ctx.restore();
+      ctx.strokeStyle = "#1a120a"; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(stick.kx, stick.ky, Math.min(48, stick.r * 0.55), 0, TAU); ctx.stroke();
       ctx.fillStyle = "rgba(26,18,10,0.7)"; ctx.font = "bold 12px Trebuchet MS"; ctx.fillText("MOVER", stick.cx, stick.cy + stick.r - 16);
-      // botones de acción
+      // botones de acción (en el mapa solo ENTRAR)
       for (const b of TBTN) {
+        if (state === "map" && b.act !== "jump") continue;
+        const lbl = state === "map" && b.act === "jump" ? "ENTRAR" : b.label;
         const active = b.toggle ? lockToggle : !!touchAct[b.act];
         ctx.save();
         ctx.shadowColor = "rgba(0,0,0,0.55)"; ctx.shadowBlur = 8; ctx.shadowOffsetY = 3;
@@ -2158,7 +2207,7 @@
         ctx.restore();
         if (active) { ctx.globalAlpha = 0.5; ctx.lineWidth = 8; ctx.strokeStyle = b.col; ctx.beginPath(); ctx.arc(b.x, b.y, b.r + 2, 0, TAU); ctx.stroke(); ctx.globalAlpha = 1; }
         ctx.lineWidth = 4; ctx.strokeStyle = active ? "#fff" : b.col; ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, TAU); ctx.stroke();
-        ctx.fillStyle = active ? "#1a120a" : "#fff"; ctx.font = "bold " + Math.round(b.r * 0.34) + "px Trebuchet MS"; ctx.fillText(b.label, b.x, b.y + 1);
+        ctx.fillStyle = active ? "#1a120a" : "#fff"; ctx.font = "bold " + Math.round(b.r * 0.34) + "px Trebuchet MS"; ctx.fillText(lbl, b.x, b.y + 1);
       }
     }
     ctx.restore();
@@ -3558,6 +3607,7 @@
   }
   /* ---- configurar botones (teclado J1 + mando) ---- */
   const KEYS_RESET = { x: W / 2 - 224, y: 588, w: 210, h: 44 }, KEYS_BACK = { x: W / 2 + 14, y: 588, w: 210, h: 44 };
+  const KEYS_TOUCH = { x: W / 2 - 224, y: 528, w: 448, h: 46 };
   function keyRow(i) { return { x: W / 2 - 300, y: 178 + i * 58, w: 600, h: 48 }; }
   function startCapture(a, dev) { capture = { action: a, dev }; padCaptureArmed = false; AUDIO.sfx("select"); }
   function updateKeys(dt, edge) {
@@ -3585,6 +3635,7 @@
       if (mClicked && pointIn(mouse, { x: r.x + 250, y: r.y, w: 160, h: r.h })) startCapture(REBIND[i], "kb");
       if (mClicked && pointIn(mouse, { x: r.x + 428, y: r.y, w: 172, h: r.h })) startCapture(REBIND[i], "pad");
     }
+    if (mClicked && pointIn(mouse, KEYS_TOUCH)) { teSel = -1; teDrag = false; AUDIO.sfx("confirm"); setState("touchedit"); return; }
     if (mClicked && pointIn(mouse, KEYS_RESET)) { OPT.keys = {}; OPT.pad = {}; applyBindings(); saveOpts(); AUDIO.sfx("confirm"); }
     if (mClicked && pointIn(mouse, KEYS_BACK)) { AUDIO.sfx("select"); setState("options"); }
   }
@@ -3612,10 +3663,70 @@
         bigText(cell[2] ? "…" : cell[3], cell[0] + cell[1] / 2, r.y + 30, 15, cell[2] ? "#1a120a" : "#fff");
       }
     }
-    bigText("El movimiento sigue en WASD / flechas y la cruceta del mando", W / 2, 560, 13, "#9fd0ff");
+    // acceso al editor de controles táctiles (para jugadores de móvil)
+    drawButtonRect(KEYS_TOUCH, "📱 Controles táctiles: mover y tamaño", pointIn(mouse, KEYS_TOUCH));
     drawButtonRect(KEYS_RESET, "↺ Restablecer", false);
     drawButtonRect(KEYS_BACK, "◀ Volver", true);
+    bigText("El movimiento sigue en WASD / flechas y la cruceta del mando", W / 2, 656, 13, "#9fd0ff");
     if (capture) { ctx.fillStyle = "rgba(0,0,0,0.55)"; ctx.fillRect(0, 0, W, H); bigText(capture.dev === "kb" ? "Pulsa una tecla…" : "Pulsa un botón del mando…", W / 2, H / 2 - 6, 34, "#ffd24a"); bigText("(Esc para cancelar)", W / 2, H / 2 + 34, 16, "#caa"); }
+  }
+
+  /* ============================================================
+     EDITOR DE CONTROLES TÁCTILES (arrastra para mover · ➕➖ tamaño)
+     ============================================================ */
+  const TE_MINUS = { x: W / 2 - 270, y: H - 70, w: 120, h: 50 }, TE_PLUS = { x: W / 2 - 140, y: H - 70, w: 120, h: 50 };
+  const TE_RESET = { x: W / 2 - 10, y: H - 70, w: 160, h: 50 }, TE_DONE = { x: W / 2 + 160, y: H - 70, w: 130, h: 50 };
+  function updateTouchEdit(dt, edge) {
+    if (edge && (tapped("back") || tapped("pause") || tapped("confirm"))) { saveTouchLayout(); AUDIO.sfx("confirm"); setState("keys"); return; }
+    if (mClicked) {
+      if (pointIn(mouse, TE_DONE)) { saveTouchLayout(); AUDIO.sfx("confirm"); setState("keys"); return; }
+      if (pointIn(mouse, TE_RESET)) { resetTouchLayout(); teSel = -1; AUDIO.sfx("buy"); return; }
+      if (teSel >= 0 && pointIn(mouse, TE_MINUS)) { teResize(-6); AUDIO.sfx("select"); return; }
+      if (teSel >= 0 && pointIn(mouse, TE_PLUS)) { teResize(6); AUDIO.sfx("select"); return; }
+      // agarrar un control para arrastrarlo
+      const L = teList(); teDrag = false;
+      for (let i = 0; i < L.length; i++) if (Math.hypot(mouse.x - L[i].x, mouse.y - L[i].y) <= L[i].r + 14) { teSel = i; teDrag = true; AUDIO.sfx("select"); }
+    }
+    if (teDrag && mDown && teSel >= 0) {
+      const L = teList()[teSel];
+      if (L) teMove(L.id, clamp(mouse.x, 56, W - 56), clamp(mouse.y, 96, H - 96));
+    }
+    if (!mDown) teDrag = false;
+  }
+  function drawTouchEdit() {
+    theaterBg("#22303a"); vignetteAndGrain();
+    decoPanel(W / 2 - 430, 22, 860, 84, "#7af0c0");
+    bigText("📱 CONTROLES TÁCTILES", W / 2, 60, 30, "#7af0c0");
+    bigText("ARRASTRA un control para moverlo · tócalo y usa ➖ ➕ para el tamaño", W / 2, 90, 14, "#caa");
+    // rejilla suave de referencia
+    ctx.strokeStyle = "rgba(255,255,255,0.05)"; ctx.lineWidth = 1;
+    for (let x = 80; x < W; x += 80) { ctx.beginPath(); ctx.moveTo(x, 110); ctx.lineTo(x, H - 84); ctx.stroke(); }
+    for (let y = 160; y < H - 84; y += 80) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+    // los controles, siempre visibles y a tamaño real
+    const L = teList();
+    L.forEach((c, i) => {
+      const sel = i === teSel;
+      ctx.save(); ctx.shadowColor = "rgba(0,0,0,0.55)"; ctx.shadowBlur = sel ? 18 : 8; ctx.shadowOffsetY = 3;
+      ctx.fillStyle = c.id === "stick" ? "rgba(20,12,8,0.55)" : "rgba(24,16,12,0.7)";
+      ctx.beginPath(); ctx.arc(c.x, c.y, c.r, 0, TAU); ctx.fill(); ctx.restore();
+      ctx.lineWidth = 4; ctx.strokeStyle = c.col; ctx.beginPath(); ctx.arc(c.x, c.y, c.r, 0, TAU); ctx.stroke();
+      if (c.id === "stick") { ctx.fillStyle = "rgba(243,231,207,0.9)"; ctx.beginPath(); ctx.arc(c.x, c.y, Math.min(48, c.r * 0.55), 0, TAU); ctx.fill(); ctx.strokeStyle = "#1a120a"; ctx.lineWidth = 3; ctx.stroke(); }
+      ctx.fillStyle = "#fff"; ctx.font = "bold " + Math.round(Math.max(13, c.r * 0.3)) + "px Trebuchet MS"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(c.label, c.x, c.y + (c.id === "stick" ? c.r - 16 : 1)); ctx.textBaseline = "alphabetic";
+      if (sel) {
+        // aro de selección con marchas + flechas de arrastre
+        ctx.save(); ctx.translate(c.x, c.y); ctx.rotate(time * 1.4); ctx.setLineDash([7, 9]); ctx.strokeStyle = "#ffd24a"; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(0, 0, c.r + 11, 0, TAU); ctx.stroke(); ctx.setLineDash([]); ctx.restore();
+        bigText("✥", c.x, c.y - c.r - 18, 20, "#ffd24a");
+      }
+    });
+    // botonera inferior
+    ctx.save(); if (teSel < 0) ctx.globalAlpha = 0.4;
+    drawButtonRect(TE_MINUS, "➖ tamaño", false); drawButtonRect(TE_PLUS, "➕ tamaño", false);
+    ctx.restore();
+    drawButtonRect(TE_RESET, "↺ Restablecer", false);
+    drawButtonRect(TE_DONE, "✓ Listo", true);
+    if (teSel < 0) bigText("toca un control para seleccionarlo", W / 2, H - 92, 14, "#9fd0ff");
   }
 
   /* ============================================================
@@ -4120,6 +4231,7 @@
     else if (state === "achievements") updateAchievements(dt, edge);
     else if (state === "options") updateOptions(dt, edge);
     else if (state === "keys") updateKeys(dt, edge);
+    else if (state === "touchedit") updateTouchEdit(dt, edge);
     else if (state === "superart") updateSuperPick(dt, edge);
     else if (state === "gallery") updateGallery(dt, edge);
     else if (state === "code") updateCode(dt, edge);
@@ -4259,6 +4371,7 @@
     else if (state === "achievements") drawAchievements();
     else if (state === "options") drawOptions();
     else if (state === "keys") drawKeys();
+    else if (state === "touchedit") drawTouchEdit();
     else if (state === "superart") drawSuperPick();
     else if (state === "gallery") drawGallery();
     else if (state === "code") drawCode();
@@ -4479,7 +4592,7 @@
       ctx.textAlign = "left"; ctx.fillStyle = "#ffd24a"; ctx.font = "bold 14px Trebuchet MS"; ctx.fillText("👕 Traje: " + sk.name, skr.x + 52, skr.y + 21);
       ctx.fillStyle = "#b9a998"; ctx.font = "11px Trebuchet MS"; ctx.fillText(nOpen + "/" + SKINS.length + " · clic para cambiar · se ganan jugando", skr.x + 52, skr.y + 38);
     }
-    ctx.textAlign = "right"; ctx.fillStyle = "#6a5a4a"; ctx.font = "12px Trebuchet MS"; ctx.fillText("v1.6.1", W - 16, H - 12); ctx.textAlign = "center";
+    ctx.textAlign = "right"; ctx.fillStyle = "#6a5a4a"; ctx.font = "12px Trebuchet MS"; ctx.fillText("v1.7", W - 16, H - 12); ctx.textAlign = "center";
   }
   function drawIntro() {
     ctx.fillStyle = "rgba(0,0,0,0.45)"; ctx.fillRect(0, 0, W, H);

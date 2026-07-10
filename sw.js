@@ -1,5 +1,5 @@
 /* Service worker de RAGTIME RUMBLE — cachea el juego para que funcione offline e instalable (PWA). */
-const CACHE = "ragtime-v1.6.1";
+const CACHE = "ragtime-v1.7";
 const CORE = [
   "./", "./index.html", "./style.css",
   "./audio.js", "./bosses.js", "./game.js",
