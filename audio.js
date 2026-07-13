@@ -176,6 +176,67 @@
       scale: [72, 76, 79, 81, 84, 88],
       motif: [2, null, 4, null, 5, null, 4, 2, 3, null, 5, null, 4, null, null, null],
     },
+    // LA DISONANCIA (jefe final secreto): el ANTI-JAZZ — ostinato con trítono, sirenas
+    // de terror, clústeres de segunda menor, tom marcial y la banda tocando con furia.
+    // Compuesto para que la pelea más difícil del juego SUENE como el fin del mundo con swing.
+    diss: (() => {
+      // ══ EL TEMA DE LA DISONANCIA ══ una canción que cuenta su historia en 5 movimientos.
+      // Regla nº1: ELLA NO SWINGUEA (straight) — todo el juego baila; ella marcha. Anti-jazz.
+      // 0. AMENAZA — latido, campanadas y el riff a lo lejos. Su pregunta suena UNA vez, en la niebla.
+      // I. FURIA — la CÉLULA del tema martillea subiendo un peldaño por compás. Tarareable al 2º compás.
+      // II. OBSESIÓN — la misma célula una 3ª menor arriba Y A DOS VOCES en 4ᵃˢ: la idea fija se multiplica.
+      // III. EL CORAZÓN — la banda calla. La célula a MITAD de velocidad, cajita de música: el tema, llorando.
+      // IV. DESAFÍO — la célula UNA OCTAVA arriba, coro en 3ᵃˢ, batería al máximo: se niega a desaparecer.
+      //     …y el V7 final la ARRASTRA a empezar otra vez. Su bucle es su condena.
+      // LA CÉLULA: "ta-ta-TAAA · da-da-dum" — dos golpes, salto a la octava, y cae por el
+      // trítono. Se repite subiendo un peldaño cada compás (la reconoces al 2º compás y
+      // ya la estás tarareando). Su nota "equivocada" (el trítono, 3) acaba siendo la
+      // sensible que EMPUJA la canción a volver a empezar: lo roto era el motor.
+      const TEMA = [
+        0, 0, 6, null, 4, null, 3, 2,         // FA-FA-¡FA'! … DO … si-sib (la célula)
+        1, 1, 6, null, 4, null, 3, 2,         // desde LAb: la misma célula, un paso arriba
+        2, 2, 6, null, 4, null, 3, 2,         // desde SIb: ya la conoces, ya la esperas
+        3, 3, 6, null, 4, null, 5, 4,         // ¡desde el TRÍTONO! y la cola SUBE: la pregunta
+        5, null, 4, null, 3, null, 4, null,   // Eb… Do… si… do… — el eco suspira
+        5, 6, null, 5, 7, null, 6, null,      // trepa con esperanza…
+        8, null, 7, 6, 5, null, 4, 3,         // …y se despeña en cascada hasta su herida
+        3, null, 3, 3, null, 4, null, null,   // si·si-si → DO: el trítono EMPUJA a empezar de nuevo
+      ];
+      // EL CORAZÓN canta LA MISMA célula a mitad de velocidad: el tema, llorando
+      const LAMENTO = [
+        0, null, null, null, 6, null, null, null,   // "yo…"        (la célula, estirada)
+        4, null, null, null, 3, null, 2, null,      // "…también…"  (su caída, en voz baja)
+        1, null, null, null, 6, null, null, null,   // "…quería…"
+        4, null, null, 3, null, null, 2, null,      // "…sonar…"
+        5, null, null, null, 4, null, null, null,   // el anhelo sube
+        3, null, null, null, 4, null, null, null,   // la cicatriz… y el paso siguiente
+        8, null, null, 7, null, 6, null, null,      // un suspiro agudo
+        6, null, null, null, null, null, null, null,// …y descansa en Fa: casi paz
+      ];
+      const AMENAZA = [
+        3, null, null, null, null, null, null, null,     // el TRÍTONO solo, como una campanada más
+        null, null, null, null, 6, null, 5, null,        // …dos pasos que se acercan en la niebla…
+        3, null, null, null, null, null, null, null,     // la pregunta, otra vez. Nadie contesta.
+        3, 3, null, 3, null, null, 6, null,              // …martillea bajito. YA VIENE.
+      ];
+      // el bucle ÉPICO i–VI–VII / i–VI–V7: Fm Fm Db Eb7 · Fm Db C7 C7 (el V7 tira de vuelta al inicio)
+      const FURIA_PROG = [P(41, "min7"), P(41, "min7"), P(37, "maj7"), P(39, "dom7"), P(41, "min7"), P(37, "maj7"), P(48, "dom7"), P(48, "dom7")];
+      return {
+        tempo: 200, drum: 1.1, intensity: 2.6, leadDens: 0.85, leadWave: "sawtooth", leadCut: 4200, compOct: 12,
+        style: "swing", straight: true, pedal: true, bell: true, pad: true, timp: true, dissX: true, leadEcho: true,
+        scale: [65, 68, 70, 71, 72, 75, 77, 80, 82, 84],   // Fa menor + TRÍTONO (71) + blue notes
+        riff: [0, 0, 3, 0, 6, 5, 3, 1],                     // el bajo con el trítono clavado en el corazón
+        prog: FURIA_PROG,
+        sections: [
+          { bars: 4, omen: true, drum: 0.45, prog: FURIA_PROG, mel: AMENAZA },                  // 0. AMENAZA
+          { bars: 8, prog: FURIA_PROG, mel: TEMA, drum: 1.1 },                                  // I. FURIA
+          { bars: 8, prog: FURIA_PROG, mel: TEMA, tr: 3, drum: 1.2, harm: -5 },                 // II. OBSESIÓN (a 2 voces en 4ᵃˢ)
+          { bars: 8, soft: true, drum: 0.28, mel: LAMENTO,                                       // III. EL CORAZÓN
+            prog: [P(44, "maj7"), P(41, "min7"), P(46, "min7"), P(39, "dom7"), P(44, "maj7"), P(49, "maj7"), P(46, "min7"), P(39, "dom7")] },
+          { bars: 8, prog: FURIA_PROG, mel: TEMA, lift: 12, drum: 1.35, harm: -3 },             // IV. DESAFÍO (coro en 3ᵃˢ)
+        ],
+      };
+    })(),
     // RÉQUIEM (jefe del código del Mausoleo): big-band fúnebre y feroz — campana, metales graves y doble tiempo
     finale: {
       tempo: 196, drum: 1.05, intensity: 2.3, leadDens: 0.8, leadWave: "sawtooth", leadCut: 3600, compOct: 12, bell: true, pad: true, timp: true,
@@ -188,6 +249,7 @@
 
   let schedTimer = null, nextTime = 0, bar = 0, beat = 0, track = null, leadIdx = 3, trackName = null, trackTr = 0;
   let phrase = { rest: 0, notes: 0, dir: 1 };   // estado del solista (frases con respiración)
+  let curSec = null, curSecBar = 0;             // sección actual de una CANCIÓN por secciones (track.sections)
 
   function chordTones(c) { return CH[c.type].map(iv => c.root + iv + trackTr); }
   // voicing de jazz sin fundamental: 3ª + 7ª + una nota de color (9ª o 5ª)
@@ -209,6 +271,31 @@
   /* --- solista: motivo compuesto (compases 0-1) + frases improvisadas (2-3) --- */
   function scheduleLead(t, swing, spb) {
     const scl = track.scale, N = scl.length;
+    // ---- CANCIÓN POR SECCIONES: la melodía está ESCRITA nota a nota (cuenta una historia) ----
+    if (curSec && curSec.mel) {
+      const soft = !!curSec.soft, omen = !!curSec.omen;
+      [t, t + swing].forEach((st, i) => {
+        const slot = curSecBar * 8 + beat * 2 + i;
+        const v = curSec.mel[slot];
+        if (v == null) return;
+        const midi = scl[Math.min(v, N - 1)] + trackTr + (curSec.tr || 0) + (curSec.lift || 0);
+        const nxt = curSec.mel[slot + 1];
+        const dur = spb * (nxt == null ? 1.05 : (i ? 0.45 : 0.52));   // si la frase respira, la nota canta más larga
+        tone(st + J() * 0.4, mf(midi), dur, {
+          type: soft && !omen ? "triangle" : track.leadWave,
+          gain: omen ? 0.12 : soft ? 0.17 : 0.18,
+          cutoff: omen ? 1400 : soft ? 2000 : track.leadCut, a: omen ? 0.04 : soft ? 0.025 : 0.01,
+          vib: soft ? 4.5 : 5.5, vibAmt: soft ? 3 : 5, fat: !soft && !omen, echo: true,
+        });
+        // VOZ DE ARMONÍA: una segunda trompeta canta en paralelo (3ᵃˢ o 4ᵗᵃˢ) — el tema se hace CORO
+        if (curSec.harm != null && !soft) tone(st + J() * 0.4 + 0.012, mf(midi + curSec.harm), dur * 0.92, {
+          type: track.leadWave, gain: 0.09, cutoff: track.leadCut * 0.8, a: 0.012, vib: 5.5, vibAmt: 4, echo: true,
+        });
+        // en el corazón, una campanita dobla la melodía una octava arriba (cajita de música)
+        if (soft && !omen && nxt == null) tone(st + 0.02, mf(midi + 12), dur * 0.8, { type: "sine", gain: 0.06, a: 0.01, echo: true });
+      });
+      return;
+    }
     const gLead = { type: track.leadWave, cutoff: track.leadCut, a: 0.01, vib: 5.5, vibAmt: track.intensity > 1.5 ? 5 : 3, fat: track.intensity > 1.3, echo: !!track.leadEcho };
     [t, t + swing].forEach((st, i) => {
       // ---- LLAMADA: el motivo del tema, tal cual fue "compuesto" ----
@@ -259,40 +346,67 @@
 
   /* --- un beat de SWING: ride, walking bass, Charleston, capas --- */
   function swingBeat(t, spb, chord, prog) {
-    const swing = spb * 0.64, dr = track.drum;
-    const fill = bar % 4 === 3 && beat === 3;   // remate al final de cada frase de 4 compases
+    const swing = spb * (track.straight ? 0.5 : 0.64);
+    const omen = !!(curSec && curSec.omen);   // sección de PRESAGIO: campanadas y el riff a lo lejos
+    const soft = !!(curSec && curSec.soft) || omen;   // sección íntima: la banda casi calla y habla el corazón
+    const dr = track.drum * (curSec && curSec.drum != null ? curSec.drum : 1);
+    const fill = bar % 4 === 3 && beat === 3 && !soft;   // remate al final de cada frase de 4 compases
 
-    // platillo de entrada de sección
-    if (bar % 8 === 0 && beat === 0) crash(t, 0.12 * dr);
-    // patrón de ride clásico: negra en cada tiempo + "skip" en 2 y 4
-    ride(t + J(), (beat === 0 ? 0.2 : 0.15) * dr);
-    if (beat === 1 || beat === 3) ride(t + swing + J(), 0.11 * dr);
-    if (beat === 1 || beat === 3) { hat(t, 0.2 * dr, false); snare(t + J(), 0.14 * dr); }
-    kick(t, (beat === 0 ? 0.7 : 0.26) * dr);
-    // notas fantasma de caja (comping de batería)
-    if (track.intensity > 1.2 && Math.random() < 0.3) snare(t + swing + J(), 0.05 * dr);
-    if (track.intensity > 1.4 && (beat === 0 || beat === 2) && Math.random() < 0.5) snare(t + swing, 0.07 * dr);
-    if (fill) { tom(t + J(), 220, 0.2 * dr); tom(t + spb * 0.33, 170, 0.2 * dr); tom(t + spb * 0.66, 125, 0.24 * dr); }
+    // platillo de entrada de sección (en canciones por secciones, al arrancar CADA movimiento)
+    if (beat === 0 && (curSec ? curSecBar === 0 && !omen : bar % 8 === 0)) crash(t, 0.12 * dr);
+    if (omen) {
+      // PRESAGIO: solo un latido de bombo y un tambor de guerra lejano
+      if (beat === 0) kick(t, 0.55 * dr);
+      if (beat === 2) tom(t + J(), 92, 0.3);
+    } else if (track.straight) {
+      // LA DISONANCIA NO SWINGUEA: metrónomo marcial de corcheas rectas — el anti-jazz
+      hat(t + J(), (beat === 0 ? 0.24 : 0.16) * dr, false); hat(t + swing + J(), 0.12 * dr, false);
+      if (beat === 1 || beat === 3) snare(t + J(), 0.24 * dr);
+      kick(t, (beat === 0 || beat === 2 ? 0.8 : 0.12) * dr);
+      if (beat === 2) kick(t + swing, 0.42 * dr);   // el empujón del "y" de 3: la máquina no respira
+      if (fill) { tom(t + J(), 220, 0.2 * dr); tom(t + spb * 0.33, 170, 0.2 * dr); tom(t + spb * 0.66, 125, 0.24 * dr); }
+    } else {
+      // patrón de ride clásico: negra en cada tiempo + "skip" en 2 y 4
+      ride(t + J(), (beat === 0 ? 0.2 : 0.15) * dr);
+      if (beat === 1 || beat === 3) ride(t + swing + J(), 0.11 * dr);
+      if (beat === 1 || beat === 3) { hat(t, 0.2 * dr, false); snare(t + J(), 0.14 * dr); }
+      kick(t, (beat === 0 ? 0.7 : 0.26) * dr);
+      // notas fantasma de caja (comping de batería)
+      if (track.intensity > 1.2 && Math.random() < 0.3) snare(t + swing + J(), 0.05 * dr);
+      if (track.intensity > 1.4 && (beat === 0 || beat === 2) && Math.random() < 0.5) snare(t + swing, 0.07 * dr);
+      if (fill) { tom(t + J(), 220, 0.2 * dr); tom(t + spb * 0.33, 170, 0.2 * dr); tom(t + spb * 0.66, 125, 0.24 * dr); }
+    }
 
-    // contrabajo caminante + nota fantasma ocasional
-    tone(t + J(), mf(bassNote(chord, beat, prog)), spb * 0.92, { type: "triangle", gain: 0.34, cutoff: 520, a: 0.008 });
-    if (beat === 3 && Math.random() < 0.3) tone(t + swing, mf(chord.root + trackTr), spb * 0.3, { type: "triangle", gain: 0.13, cutoff: 480, a: 0.006 });
+    // contrabajo: ostinato COMPUESTO (riff con carácter) o caminante clásico
+    if (omen && track.riff) {
+      // el riff a MEDIA MÁQUINA: solo la primera nota de cada tiempo, acechando
+      if (beat === 0 || beat === 2) tone(t + J(), mf(chord.root + trackTr + track.riff[beat * 2]), spb * 0.9, { type: "sawtooth", gain: 0.22, cutoff: 560, a: 0.012 });
+    } else if (soft) {
+      if (beat === 0 || beat === 2) tone(t + J(), mf(chord.root + trackTr), spb * 1.8, { type: "triangle", gain: 0.2, cutoff: 420, a: 0.03 });
+    } else if (track.riff) {
+      const r0 = chord.root + trackTr;
+      tone(t + J(), mf(r0 + track.riff[beat * 2]), spb * 0.52, { type: "sawtooth", gain: 0.3, cutoff: 720, a: 0.006 });
+      tone(t + swing + J(), mf(r0 + track.riff[beat * 2 + 1]), spb * 0.42, { type: "sawtooth", gain: 0.24, cutoff: 720, a: 0.006 });
+    } else {
+      tone(t + J(), mf(bassNote(chord, beat, prog)), spb * 0.92, { type: "triangle", gain: 0.34, cutoff: 520, a: 0.008 });
+      if (beat === 3 && Math.random() < 0.3) tone(t + swing, mf(chord.root + trackTr), spb * 0.3, { type: "triangle", gain: 0.13, cutoff: 480, a: 0.006 });
+    }
 
-    // comping Charleston (dos variantes alternadas por compás)
+    // comping Charleston (dos variantes alternadas por compás) — en el presagio la banda aún no entra
     const v = bar % 2;
-    if ((v === 0 && (beat === 0 || beat === 2)) || (v === 1 && (beat === 1 || beat === 2))) {
+    if (!omen && ((v === 0 && (beat === 0 || beat === 2)) || (v === 1 && (beat === 1 || beat === 2)))) {
       compVoicing(chord).forEach(m =>
         tone(t + swing + J(), mf(m + track.compOct), spb * 0.4, { type: "triangle", gain: 0.1, a: 0.005 }));
     }
 
     // sección de metales en los temas intensos (acentos brillantes)
-    if (track.intensity > 1.4 && beat === 3) {
+    if (track.intensity > 1.4 && beat === 3 && !soft) {
       const ct = chordTones(chord);
       [ct[1], ct[2]].forEach(m =>
         tone(t + swing, mf(m + 12), spb * 0.5, { type: "sawtooth", gain: 0.09, a: 0.012, cutoff: 2300, fat: true, vib: 6, vibAmt: 4 }));
     }
     // pedal de metal grave (temas de jefe): tensión sostenida
-    if (track.pedal && (beat === 0 || beat === 2)) {
+    if (track.pedal && (beat === 0 || beat === 2) && !soft) {
       tone(t, mf(chord.root + trackTr - 12), spb * 0.9, { type: "sawtooth", gain: 0.1, cutoff: 460, a: 0.02, fat: true });
     }
     // clarinete cálido (isla): nota larga de color en cada compás
@@ -307,27 +421,46 @@
         tone(t + i * spb * 0.25, mf(m + 24), 0.5, { type: "sine", gain: 0.08, a: 0.004, echo: true }));
     }
     // tema final (RÉQUIEM): campana fúnebre cada 2 compases + coro/pad + timbales
-    if (track.bell && beat === 0 && bar % 2 === 0) {
-      tone(t, mf(33 + trackTr), 2.2, { type: "sine", gain: 0.3, a: 0.004 });
+    // en el PRESAGIO dobla en CADA compás: el reloj que anuncia lo que viene
+    if (track.bell && beat === 0 && (bar % 2 === 0 || omen)) {
+      tone(t, mf(33 + trackTr), 2.2, { type: "sine", gain: omen ? 0.34 : 0.3, a: 0.004 });
       tone(t, mf(40 + trackTr) + 1.7, 1.5, { type: "triangle", gain: 0.09, a: 0.004 });
     }
     if (track.pad && beat === 0) {
       chordTones(chord).forEach(m => tone(t, mf(m + 12), spb * 3.8, { type: "sine", gain: 0.05, a: 0.5, cutoff: 1300 }));
       tone(t, mf(chord.root + trackTr + 24), spb * 3.8, { type: "triangle", gain: 0.035, a: 0.7, cutoff: 1100, vib: 4, vibAmt: 3 });
     }
-    if (track.timp && bar % 4 === 0 && beat === 0) {
+    if (track.timp && bar % 4 === 0 && beat === 0 && !soft) {
       for (let i = 0; i < 5; i++) timpani(t + i * 0.07, chord.root + trackTr - 12, 0.09 + i * 0.02);
     }
-    if (track.intensity >= 2) {
+    // LA DISONANCIA: sirena de terror que TREPA cada 4 compases + clúster de 2ª menor + tom marcial
+    if (track.dissX && !soft) {
+      if (bar % 4 === 3 && beat === 0)
+        tone(t, mf(chord.root + trackTr + 18), spb * 3.6, { type: "sawtooth", gain: 0.07, glide: mf(chord.root + trackTr + 11), cutoff: 2800, a: 0.35, vib: 7.5, vibAmt: 10, echo: true });
+      if (beat === 2) {
+        tone(t + swing, mf(chord.root + trackTr + 13), spb * 0.85, { type: "triangle", gain: 0.05, a: 0.06, cutoff: 1500 });
+        tone(t + swing, mf(chord.root + trackTr + 12), spb * 0.85, { type: "triangle", gain: 0.05, a: 0.06, cutoff: 1500 });
+      }
+      if (beat === 1) tom(t + swing, 92, 0.24);
+      if (bar % 8 === 7 && beat === 3) { crash(t, 0.16); crash(t + swing, 0.1); }   // remate antes de repetir el ciclo
+    }
+    if (track.intensity >= 2 && !soft) {
       if (beat === 0 || beat === 2) { const ct = chordTones(chord); tone(t, mf(ct[0]), spb * 0.65, { type: "sawtooth", gain: 0.12, cutoff: 900, fat: true, a: 0.015 }); }
       if (beat === 3) hat(t + spb * 0.32, 0.16 * dr, true);
     }
   }
 
   function scheduleBeat(t, spb) {
-    const swing = spb * 0.64;
-    const prog = track.prog;
-    const chord = prog[bar % prog.length];
+    const swing = spb * (track.straight ? 0.5 : 0.64);   // straight: corcheas RECTAS (el anti-jazz de LA DISONANCIA)
+    // canción por SECCIONES: cada sección tiene su progresión, melodía escrita y dinámica
+    curSec = null; curSecBar = bar;
+    if (track.sections) {
+      const total = track.sections.reduce((a, s) => a + s.bars, 0);
+      let bb = bar % total;
+      for (const s of track.sections) { if (bb < s.bars) { curSec = s; curSecBar = bb; break; } bb -= s.bars; }
+    }
+    const prog = (curSec && curSec.prog) || track.prog;
+    const chord = prog[(curSec ? curSecBar : bar) % prog.length];
     if (track.style === "stride") strideBeat(t, spb, chord);
     else swingBeat(t, spb, chord, prog);
     scheduleLead(t, swing, spb);

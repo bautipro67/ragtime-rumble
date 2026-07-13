@@ -1851,6 +1851,338 @@
       ctx.strokeStyle = "#14101e"; ctx.lineWidth = 1.4; ctx.stroke();
     }
   }
+  /* ============================================================
+     JEFE FINAL SECRETO — LA DISONANCIA (el acorde que nunca debió sonar)
+     Solo tras vencer a los 15 jefes en Normal. SIEMPRE pelea en Locura.
+     Fases: 1 suelo · 2 CUBO (avioneta mini, ataques de todos lados) ·
+     3 duelo aéreo · 4 PERSECUCIÓN (muro devorador + viento en contra) ·
+     5 furia → ESCAPA e infecta la isla · 6 (tras purificarla) el Acorde Final.
+     ============================================================ */
+  class DissBoss extends Boss {
+    constructor(G) {
+      const r2 = !!G.dissR2;
+      super(G, {
+        hp: r2 ? 3200 : 2600, name: "LA DISONANCIA",
+        thresholds: r2 ? [0.84, 0.67, 0.5, 0.33, 0.16] : [0.8, 0.6, 0.4, 0.2],
+        firstDelay: 1.8,
+      });
+      this.r2 = r2; this.w = 210; this.h = 250;
+      this.x = G.W - 340; this.y = G.groundY - this.h;
+      this.glit = 0; this.wallT = 0; this.sa = 0; this.p4T = 0; this.tauntT = 6;
+      // NOTA de diseño: pelea SIEMPRE en Locura (atk ×0.66), así que los tiempos de
+      // recuperación de cada ataque ya vienen compensados: un patrón TERMINA antes
+      // de que empiece el siguiente. Difícil por ejecución, no por solapamiento.
+    }
+    getHitboxes() {
+      if (this.phase === 4) return [{ x: -20, y: 60, w: 130, h: this.G.groundY - 60 }];   // forma de MURO devorador
+      return [{ x: this.x + 30, y: this.y + 26, w: this.w - 60, h: this.h - 40 }];
+    }
+    onPhase(n) {
+      const G = this.G; this.glit = 0.9; G.shake(20);
+      if (G.hitStop) G.hitStop(0.22);   // medio latido de silencio: el cambio de fase SE SIENTE
+      if (G.ring) { const hb = this.getHitboxes()[0]; G.ring(hb.x + hb.w / 2, hb.y + hb.h / 2, 120, "#ff3a5e"); G.ring(hb.x + hb.w / 2, hb.y + hb.h / 2, 70, "#fff"); }
+      this.atkT = Math.max(this.atkT, 1.6);   // RESPIRO garantizado tras cada transición
+      const cry = ["", "¡EL CUBO!", "¡DUELO AÉREO!", "¡¡CORRE!!", "¡FURIA!", "EL ACORDE FINAL"][n - 1];
+      if (cry && G.floatText) G.floatText(G.W / 2, 150, cry, "#ff3a5e");
+      if (n === 2) { if (G.setFlight) G.setFlight(true, true); if (G.setCage) G.setCage({ x: G.W / 2 - 220, y: 145, w: 440, h: 340 }); }
+      if (n === 3) { if (G.setCage) G.setCage(null); if (G.setFlight) G.setFlight(true, false); }
+      if (n === 4) { if (G.setFlight) G.setFlight(false); this.atkT = Math.max(this.atkT, 1.4); this.p4T = 0; if (G.heal) G.heal(1); }   // corazón de piedad antes de la carrera
+      if (n === 5) { if (G.setWind) G.setWind(0, 0); }
+      if (n === 6) { G.shake(26); if (G.heal) G.heal(1); if (G.burst) G.burst(this.x + this.w / 2, this.y + 90, { n: 40, color: "#ff2448", smin: 3, smax: 10 }); }
+    }
+    behave(dt) {
+      if (this.glit > 0) this.glit -= dt; this.sa += dt;
+      const G = this.G;
+      // se BURLA de ti entre patrones (carácter, no daño)
+      this.tauntT -= dt;
+      if (this.tauntT <= 0 && this.phase !== 4) {
+        this.tauntT = 7 + Math.random() * 4;
+        if (G.floatText) G.floatText(this.x + this.w / 2, this.y - 16, ["DESAFINAS…", "¿eso es TODO?", "sin compás", "♪ ♩ ♪ roto", "yo TAMBIÉN era música"][(Math.random() * 5) | 0], "#ff8aa6");
+      }
+      if (this.phase === 1 || this.phase >= 5) {
+        this.x = G.W - 340 + Math.sin(this.t * 0.8) * 60;
+        this.y = G.groundY - this.h - Math.abs(Math.sin(this.t * 1.6)) * 26;
+      } else if (this.phase === 2) {
+        this.x = G.W / 2 - this.w / 2 + Math.sin(this.t * 1.4) * 40; this.y = -30;   // se cierne SOBRE el cubo
+      } else if (this.phase === 3) {
+        this.x = G.W - 330 + Math.sin(this.t * 1.1) * 130; this.y = 110 + Math.sin(this.t * 1.7) * 150;
+      } else if (this.phase === 4) {
+        // PERSECUCIÓN: viento en contra + muro devorador. Sobrevive 12 segundos y la fase CAE sola
+        this.x = -60; this.y = 40;
+        if (G.setWind) G.setWind(-3.2, 0.5);   // corriendo a tope GANAS terreno (antes empataba: injusto)
+        this.wallT -= dt; this.p4T += dt;
+        if (this.wallT <= 0) { this.wallT = 0.5; G.spawnHazard({ x: -60, y: 0, w: 104, h: G.groundY, telegraph: 0.01, active: 0.55, type: "erase", color: "#c01838" }); }
+        const tgt = this.r2 ? 0.33 : 0.2;
+        if (this.p4T > 12 && this.hp / this.maxHp > tgt + 0.005) this.hit(this.hp - this.maxHp * tgt + 1);   // sobreviviste la carrera: fase superada
+      }
+    }
+    choose() {
+      const P = this.phase;
+      if (P === 1) return this.choice([0.36, 0.34, 0.3], [this.triFan, this.crossLasers, this.mines]);
+      if (P === 2) return this.choice([0.4, 0.32, 0.28], [this.edgeVolley, this.cubeSweep, this.collapseRing]);
+      if (P === 3) return this.choice([0.36, 0.34, 0.3], [this.sineScream, this.homingCluster, this.gridFire]);
+      if (P === 4) return this.choice([0.55, 0.45], [this.hurdles, this.skyDrops]);
+      if (P === 5) return this.choice([0.26, 0.24, 0.2, 0.16, 0.14], [this.doubleSpiral, this.triFan, this.crossLasers, this.collapseRing, this.duelNotes]);
+      return this.choice([0.32, 0.26, 0.24, 0.18], [this.cacophony, this.doubleSpiral, this.edgeVolley, this.duelNotes]);
+    }
+    // ---- F1/F5: acordes rotos ----
+    triFan() {
+      const cx = this.x + this.w / 2, cy = this.y + 90;
+      for (let k = 0; k < 3; k++) this.after(k * 0.42, () => {
+        const p = this.pPos(), base = Math.atan2(p.y - cy, p.x - cx);
+        // a QUEMARROPA el abanico se ABRE: siempre cabe un cuerpo entre púa y púa
+        const sp = Math.hypot(p.x - cx, p.y - cy) < 260 ? 0.4 : 0.22;
+        for (let i = -2; i <= 2; i++) { const a = base + i * sp; this.G.spawnProj({ x: cx, y: cy, vx: Math.cos(a) * 6.0, vy: Math.sin(a) * 6.0, r: 9, shape: "bolt", color: i === 0 ? "#ff3a5e" : "#d8d2ee", parry: k === 1 && i === 0 }); }
+        this.G.sfx("shoot");
+      });
+      return 2.9;
+    }
+    crossLasers() {
+      // JUSTO: primero la vertical (donde estabas), luego la horizontal en CARRILES FIJOS
+      // aprendibles (suelo o salto) — nunca las dos cazando tu posición exacta a la vez
+      const p = this.pPos();
+      this.G.spawnHazard({ x: Math.max(90, Math.min(this.G.W - 90, p.x)) - 22, y: 0, w: 44, h: this.G.groundY, telegraph: 0.9, active: 0.4, color: "#ff3a5e", type: "laser" });
+      this.after(0.85, () => {
+        const lane = this.pPos().y > this.G.groundY - 120 ? this.G.groundY - 52 : this.G.groundY - 210;   // castiga la zona donde estás, con margen
+        this.G.spawnHazard({ x: 0, y: lane - 20, w: this.G.W, h: 40, telegraph: 0.9, active: 0.4, color: "#d8d2ee", type: "laser" });
+      });
+      return 3.4;
+    }
+    mines() {
+      // cada mina AVISA dónde va a nacer (antes podía materializarse encima de ti)
+      for (let i = 0; i < 3; i++) this.after(i * 0.22, () => {
+        const x = 170 + (i * 390) % (this.G.W - 340), y = this.G.groundY - 46 - (i % 2) * 130;
+        this.G.spawnHazard({ x: x - 16, y: y - 16, w: 32, h: 32, telegraph: 0.42, active: 0.01, type: "laser", color: "#ff3a5e" });
+        this.after(0.42, () => {
+          this.G.spawnProj({ x, y, vx: 0, vy: 0, r: 13, shape: "star", color: "#ff3a5e", noFloor: true, life: 1.35, parry: i === 1 });
+          this.after(1.3, () => { for (let j = 0; j < 6; j++) { const a = j * (TAU / 6) + i; this.G.spawnProj({ x, y, vx: Math.cos(a) * 4.6, vy: Math.sin(a) * 4.6, r: 7, shape: "bolt", color: "#d8d2ee", noFloor: true, life: 1.4 }); } this.G.sfx("explode"); });
+        });
+      });
+      return 4.0;   // las esquirlas mueren ANTES del siguiente patrón
+    }
+    // ---- F2: el CUBO (ataques desde los 4 lados) ----
+    edgeVolley() {
+      // AVISO por lado antes de disparar: una línea roja marca de dónde viene la oleada
+      const c = { x: this.G.W / 2, y: 315 };
+      this.gapV = this.G.randi(0, 3); this.gapH = this.G.randi(0, 3);   // columna y fila seguras de ESTA ráfaga
+      for (let k = 0; k < 6; k++) {
+        this.after(k * 0.2, () => {
+          const side = k % 4;
+          if (side === 0) this.G.spawnHazard({ x: c.x - 220, y: 58, w: 440, h: 4, telegraph: 0.34, active: 0.01, type: "laser", color: "#ff3a5e" });
+          else if (side === 1) this.G.spawnHazard({ x: c.x - 220, y: 558, w: 440, h: 4, telegraph: 0.34, active: 0.01, type: "laser", color: "#ff3a5e" });
+          else if (side === 2) this.G.spawnHazard({ x: 98, y: 145, w: 4, h: 340, telegraph: 0.34, active: 0.01, type: "laser", color: "#ff3a5e" });
+          else this.G.spawnHazard({ x: this.G.W - 102, y: 145, w: 4, h: 340, telegraph: 0.34, active: 0.01, type: "laser", color: "#ff3a5e" });
+        });
+        this.after(k * 0.2 + 0.36, () => {
+          const side = k % 4, gap = side <= 1 ? this.gapV : this.gapH;   // hueco CONSISTENTE por eje: la celda segura existe toda la ráfaga
+          for (let i = 0; i < 4; i++) {
+            if (i === gap) continue;   // SIEMPRE hay un hueco por el que colarse
+            let x, y, vx, vy;
+            if (side === 0) { x = c.x - 165 + i * 110; y = 60; vx = 0; vy = 5.2; }
+            else if (side === 1) { x = c.x - 165 + i * 110; y = 560; vx = 0; vy = -5.2; }
+            else if (side === 2) { x = 100; y = 150 + i * 95; vx = 5.2; vy = 0; }
+            else { x = this.G.W - 100; y = 150 + i * 95; vx = -5.2; vy = 0; }
+            this.G.spawnProj({ x, y, vx, vy, r: 9, shape: "bolt", color: "#ff3a5e", noFloor: true, life: 3, parry: k === 3 && i === (gap + 1) % 4 });
+          }
+          this.G.sfx("shoot");
+        });
+      }
+      return 3.8;
+    }
+    cubeSweep() {
+      // la barra deja SIEMPRE un corredor libre (antes cubría el cubo entero: INESQUIVABLE si estabas dentro)
+      // top=true: barra pegada arriba → corredor abajo; el tajo horizontal cae DENTRO de la zona de la barra, nunca en el corredor
+      const top = Math.random() < 0.5;
+      this.G.spawnHazard({ x: this.G.W / 2 - 226, y: top ? 140 : 250, w: 36, h: 240, telegraph: 0.6, active: 2.9, vx: 3.0, type: "laser", color: "#ff3a5e" });
+      this.after(1.0, () => this.G.spawnHazard({ x: this.G.W / 2 - 210, y: top ? 168 : 420, w: 420, h: 34, telegraph: 0.8, active: 0.5, type: "laser", color: "#d8d2ee" }));
+      return 4.0;
+    }
+    collapseRing() {
+      const c = { x: this.G.W / 2, y: 315 };
+      for (let i = 0; i < 12; i++) {
+        const a = i * (TAU / 12);
+        this.G.spawnProj({ x: c.x + Math.cos(a) * 300, y: c.y + Math.sin(a) * 300, vx: -Math.cos(a) * 2.9, vy: -Math.sin(a) * 2.9, r: 10, shape: "star", color: i % 3 === 0 ? "#ff3a5e" : "#d8d2ee", noFloor: true, life: 3.2, parry: i === 0 });
+      }
+      this.G.sfx("shootBig");
+      return 3.8;   // el anillo se disuelve antes del siguiente patrón
+    }
+    // ---- F3: duelo aéreo ----
+    sineScream() {
+      for (let i = 0; i < 6; i++) this.after(i * 0.22, () => {
+        const base = 90 + this.G.rand(0, this.G.H - 240);
+        this.G.spawnProj({ x: this.G.W + 20, y: base, vx: -6.2, vy: 0, r: 10, shape: "star", color: "#ff3a5e", noFloor: true, sine: { base, f: 6, a: 56, ph: i }, parry: i === 3 });
+      });
+      return 3.2;
+    }
+    homingCluster() {
+      const cx = this.x + 20, cy = this.y + this.h / 2;
+      for (let i = 0; i < 5; i++) this.after(i * 0.16, () => { const v = this.aim(cx, cy, 3.4); this.G.spawnProj({ x: cx, y: cy, vx: v.vx + this.G.rand(-1.5, 1.5), vy: v.vy + this.G.rand(-1.5, 1.5), r: 11, shape: "fire", color: "#ff5a3e", homing: true, homeTime: 1.4, homeStr: 1.8, speed: 4.6, noFloor: true, parry: i === 2 }); });
+      return 3.4;   // las homing EXPIRAN antes del siguiente ataque
+    }
+    gridFire() {
+      // fuego cruzado por las MISMAS calles (antes las calles opuestas iban intercaladas
+      // a 55px: no cabía la avioneta). Corredores de 110px, el eco llega a contratiempo.
+      for (let i = 0; i < 5; i++) this.after(i * 0.26, () => {
+        const y = 80 + i * 110;
+        this.G.spawnProj({ x: this.G.W + 20, y, vx: -6.8, vy: 0, r: 9, shape: "bolt", color: "#d8d2ee", noFloor: true, parry: i === 2 });
+        this.after(0.13, () => this.G.spawnProj({ x: -20, y, vx: 6.8, vy: 0, r: 9, shape: "bolt", color: "#8a5aff", noFloor: true }));
+      });
+      return 3.2;
+    }
+    // ---- F4: persecución ----
+    hurdles() {
+      for (let i = 0; i < 3; i++) this.after(i * 0.6, () => this.G.spawnHazard({ x: this.G.W + 30, y: this.G.groundY - 92, w: 54, h: 92, telegraph: 0.45, active: 2.6, vx: -7.6, type: "erase", color: "#3a0a1e" }));
+      return 4.5;   // las vallas VIAJAN: tardan ~3.5s en pasar al jugador — que las esporas no caigan encima del salto
+    }
+    skyDrops() {
+      for (let i = 0; i < 4; i++) this.after(i * 0.32, () => {
+        const p = this.pPos();
+        this.G.spawnProj({ x: Math.min(this.G.W - 80, p.x + this.G.rand(60, 260)), y: -20, vx: 0, vy: 5, grav: 14, r: 12, shape: "spore", color: "#c01838", parry: i === 1 });
+      });
+      return 3.0;
+    }
+    // ---- F5/F6 ----
+    doubleSpiral() {
+      const cx = this.x + this.w / 2, cy = this.y + 100;
+      for (let k = 0; k < 10; k++) this.after(k * 0.11, () => {
+        for (const s of [1, -1]) { const a = s * (this.sa * 2.4 + k * 0.5); this.G.spawnProj({ x: cx, y: cy, vx: Math.cos(a) * 4.2, vy: Math.sin(a) * 4.2, r: 9, shape: "star", color: s > 0 ? "#ff3a5e" : "#d8d2ee", parry: s > 0 && k % 5 === 0 }); }
+      });
+      return 4.4;   // la espiral cruza la pantalla ENTERA antes del siguiente ataque
+    }
+    duelNotes() {
+      // notas de DUELO: devuélvelas con parry para herirla de verdad
+      for (let i = 0; i < 3; i++) this.after(i * 0.55, () => {
+        const cx = this.x + this.w / 2, cy = this.y + 90, v = this.aim(cx, cy, 6.4);
+        this.G.spawnProj({ x: cx, y: cy, vx: v.vx, vy: v.vy, r: 13, shape: "star", color: "#ff4fa3", noFloor: true, life: 4, parry: true, duel: true });
+        this.G.sfx("shootBig");
+      });
+      return 3.8;
+    }
+    cacophony() {
+      // EL ACORDE FINAL: tormenta con carriles seguros — todo el arsenal a la vez
+      const ys = [this.G.groundY - 60, this.G.groundY - 170, this.G.groundY - 280, this.G.groundY - 390];
+      const safe = this.G.randi(0, 3);
+      ys.forEach((y, li) => this.G.spawnHazard({ x: 0, y: y - 2, w: this.G.W, h: 4, telegraph: 1.2, active: 0.01, type: "laser", color: li === safe ? "#4de08a" : "#ff3a5e" }));
+      ys.forEach((y, li) => { if (li === safe) return; for (let i = 0; i < 4; i++) this.after(1.3 + i * 0.24 + li * 0.06, () => this.G.spawnProj({ x: this.G.W + 20, y, vx: -6.6, vy: 0, r: 10, shape: "bolt", color: "#ff3a5e", noFloor: true, parry: li === (safe + 1) % 4 && i === 2 })); });
+      this.after(2.5, () => { const cx = this.x + this.w / 2, cy = this.y + 100; for (let i = 0; i < 10; i++) { const a = i * (TAU / 10); this.G.spawnProj({ x: cx, y: cy, vx: Math.cos(a) * 4.0, vy: Math.sin(a) * 4.0, r: 9, shape: "star", color: "#8a5aff" }); } });
+      return 4.8;
+    }
+    // ---- DIBUJO: el director espectral del anti-jazz ----
+    draw(ctx) {
+      const G = this.G, fl = this.flash > 0, ph = this.phase;
+      ctx.lineJoin = "round"; ctx.lineCap = "round";
+      if (ph === 4) { this.drawWall(ctx); return; }
+      const cx = this.x + this.w / 2, cy = this.y;
+      const bodyC = fl ? "#fff" : ["#241028", "#241028", "#2a0c26", "#2a0c26", "#380818", "#48041a"][ph - 1] || "#241028";
+      // PENTAGRAMA ROTO girando a su espalda (el aura de la anti-música)
+      ctx.save(); ctx.translate(cx, cy + 90); ctx.rotate(Math.sin(this.t * 0.6) * 0.2);
+      ctx.globalAlpha = 0.5 + Math.sin(this.t * 3) * 0.15;
+      ctx.strokeStyle = "#5a1030"; ctx.lineWidth = 3;
+      for (let i = -2; i <= 2; i++) {
+        ctx.beginPath(); ctx.moveTo(-130, i * 14 - 8); ctx.lineTo(-30, i * 14 + this.G.rand(-3, 3));
+        ctx.moveTo(30, i * 14 + this.G.rand(-3, 3)); ctx.lineTo(130, i * 14 + 8); ctx.stroke();   // roto en el centro
+      }
+      ctx.restore(); ctx.globalAlpha = 1;
+      // notas DESGARRADAS orbitando
+      for (let i = 0; i < 5; i++) {
+        const a = this.t * 1.2 + i * (TAU / 5), rr = 128 + Math.sin(this.t * 2 + i) * 14;
+        const nx = cx + Math.cos(a) * rr, ny = cy + 100 + Math.sin(a) * rr * 0.6;
+        ctx.save(); ctx.translate(nx, ny); ctx.rotate(a + this.t); ctx.globalAlpha = 0.75;
+        ctx.fillStyle = i % 2 ? "#ff3a5e" : "#d8d2ee"; ctx.font = "bold 22px Georgia"; ctx.textAlign = "center"; ctx.fillText(i % 2 ? "♪" : "♩", 0, 0);
+        ctx.strokeStyle = "#0a0410"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-8, -4); ctx.lineTo(8, 5); ctx.stroke();   // tachadas
+        ctx.restore();
+      }
+      ctx.globalAlpha = 1;
+      // TÚNICA de tinta con GLITCH (tres siluetas desfasadas)
+      const robe = (ox, oy, col, al) => {
+        ctx.save(); ctx.translate(ox, oy); ctx.globalAlpha = al; ctx.fillStyle = col;
+        ctx.beginPath(); ctx.moveTo(cx - 66, cy + 66);
+        ctx.quadraticCurveTo(cx, cy - 18, cx + 66, cy + 66);
+        ctx.lineTo(cx + 88, cy + this.h - 26);
+        for (let i = 0; i < 6; i++) { const jx = cx + 88 - (i + 0.5) * 29; ctx.quadraticCurveTo(jx + 7, cy + this.h + (i % 2 ? 8 : 26) + Math.sin(this.t * 4 + i) * 6, jx - 14, cy + this.h - 20); }
+        ctx.quadraticCurveTo(cx - 88, cy + this.h - 10, cx - 66, cy + 66); ctx.closePath(); ctx.fill(); ctx.restore();
+      };
+      const gj = this.glit > 0 ? 4 : 1.4;
+      robe(G.rand(-gj, gj), G.rand(-gj, gj) * 0.5, "#ff2448", 0.35);
+      robe(G.rand(-gj, gj), G.rand(-gj, gj) * 0.5, "#3a5aff", 0.22);
+      robe(0, 0, bodyC, 1);
+      ctx.strokeStyle = "#0a0410"; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(cx - 66, cy + 66); ctx.quadraticCurveTo(cx, cy - 18, cx + 66, cy + 66); ctx.stroke();
+      // BRAZOS = pentagramas quebrados que DIRIGEN la orquesta maldita
+      const wave = Math.sin(this.t * (ph >= 5 ? 9 : 5)) * 0.5;
+      for (const s of [-1, 1]) {
+        ctx.save(); ctx.translate(cx + s * 62, cy + 96); ctx.rotate(s * (0.5 + wave * 0.5));
+        ctx.strokeStyle = fl ? "#fff" : "#d8d2ee"; ctx.lineWidth = 5;
+        ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(s * 34, -22); ctx.lineTo(s * 52, -30 + wave * 8); ctx.stroke();
+        ctx.strokeStyle = "#0a0410"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(0, 4); ctx.lineTo(s * 36, -18); ctx.stroke();
+        // la BATUTA-RELÁMPAGO en la mano derecha
+        if (s === 1) {
+          ctx.strokeStyle = fl ? "#fff" : "#ff3a5e"; ctx.lineWidth = 4;
+          ctx.beginPath(); ctx.moveTo(52, -30 + wave * 8); ctx.lineTo(66, -52 + wave * 10); ctx.lineTo(60, -54 + wave * 10); ctx.lineTo(78, -80 + wave * 12); ctx.stroke();
+          const bg2 = 0.5 + Math.abs(wave);
+          ctx.save(); ctx.globalAlpha = bg2 * 0.6; ctx.fillStyle = "#ff3a5e"; ctx.beginPath(); ctx.arc(78, -80 + wave * 12, 9, 0, TAU); ctx.fill(); ctx.restore();
+        }
+        ctx.restore();
+      }
+      // MÁSCARA blanca agrietada (la cara del silencio)
+      ctx.save(); ctx.translate(cx, cy + 62); ctx.rotate(Math.sin(this.t * 1.3) * 0.05 + (this.glit > 0 ? G.rand(-0.06, 0.06) : 0));
+      const mg3 = ctx.createLinearGradient(-40, -46, 40, 40); mg3.addColorStop(0, fl ? "#fff" : "#f2ecdc"); mg3.addColorStop(1, fl ? "#eee" : "#c9beaa");
+      ctx.fillStyle = mg3; ctx.beginPath(); ctx.ellipse(0, 0, 42, 50, 0, 0, TAU); ctx.fill();
+      ctx.strokeStyle = "#0a0410"; ctx.lineWidth = 5; ctx.stroke();
+      // grietas (crecen con las fases)
+      ctx.strokeStyle = "rgba(20,8,16,0.75)"; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.moveTo(-14, -48); ctx.lineTo(-8, -20); ctx.lineTo(-20, 2); ctx.stroke();
+      if (ph >= 3) { ctx.beginPath(); ctx.moveTo(26, -34); ctx.lineTo(16, -8); ctx.lineTo(30, 16); ctx.stroke(); }
+      if (ph >= 5) { ctx.beginPath(); ctx.moveTo(0, 20); ctx.lineTo(-8, 40); ctx.moveTo(6, 24); ctx.lineTo(14, 44); ctx.stroke(); }
+      // NÚCLEO rojo asomando por las grietas en la fase final
+      if (ph >= 6 || (this.r2 && ph >= 5)) {
+        const pu2 = 0.5 + Math.sin(this.t * 8) * 0.4;
+        ctx.save(); ctx.globalAlpha = pu2; ctx.fillStyle = "#ff2448";
+        ctx.beginPath(); ctx.ellipse(-12, -12, 5, 12, 0.4, 0, TAU); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(20, -4, 4, 10, -0.3, 0, TAU); ctx.fill(); ctx.restore();
+      }
+      // ojo pie-cut + ojo ESPIRAL (nada en ella está afinado)
+      this.eye(ctx, -14, -8, 13);
+      ctx.strokeStyle = "#0a0410"; ctx.lineWidth = 2.6; ctx.beginPath();
+      for (let a = 0; a < 4.2; a += 0.12) { const rr = 2 + a * 2.6, px2 = 15 + Math.cos(a + this.t * 2.2) * rr, py2 = -8 + Math.sin(a + this.t * 2.2) * rr; a === 0 ? ctx.moveTo(px2, py2) : ctx.lineTo(px2, py2); }
+      ctx.stroke();
+      // boca: aparece cosida, y en furia se ABRE en un grito dentado
+      if (ph >= 5) {
+        ctx.fillStyle = "#12040c"; ctx.beginPath(); ctx.moveTo(-20, 26);
+        for (let i = 0; i <= 6; i++) ctx.lineTo(-20 + i * (40 / 6), 26 + (i % 2 ? 14 : 3));
+        ctx.lineTo(20, 26); ctx.closePath(); ctx.fill(); ctx.strokeStyle = "#0a0410"; ctx.lineWidth = 2.5; ctx.stroke();
+      } else {
+        ctx.strokeStyle = "#0a0410"; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(-16, 28); ctx.lineTo(16, 28); ctx.stroke();
+        for (let i = -1; i <= 1; i++) { ctx.beginPath(); ctx.moveTo(i * 10, 23); ctx.lineTo(i * 10, 33); ctx.stroke(); }
+      }
+      // corona de claves de sol DOBLADAS
+      ctx.strokeStyle = fl ? "#fff" : "#8a5aff"; ctx.lineWidth = 3.5;
+      for (const s of [-1, 0, 1]) { ctx.beginPath(); ctx.moveTo(s * 22, -46); ctx.quadraticCurveTo(s * 30, -74, s * 14 + 6, -64 - (s === 0 ? 10 : 0)); ctx.stroke(); }
+      ctx.restore();
+    }
+    // forma de MURO devorador de la persecución
+    drawWall(ctx) {
+      const G = this.G, gy = G.groundY;
+      const grad = ctx.createLinearGradient(0, 0, 150, 0); grad.addColorStop(0, "#12040c"); grad.addColorStop(1, "rgba(60,8,30,0.9)");
+      ctx.fillStyle = grad;
+      ctx.beginPath(); ctx.moveTo(-40, 0);
+      for (let y = 0; y <= gy; y += 44) ctx.lineTo(96 + Math.sin(this.t * 6 + y * 0.05) * 22, y);
+      ctx.lineTo(-40, gy); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = "#ff2448"; ctx.lineWidth = 4;
+      ctx.beginPath(); for (let y = 0; y <= gy; y += 44) { const x = 96 + Math.sin(this.t * 6 + y * 0.05) * 22; y === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y); } ctx.stroke();
+      // la máscara SURFEA el muro, riéndose
+      ctx.save(); ctx.translate(70 + Math.sin(this.t * 3) * 10, 170 + Math.sin(this.t * 2.2) * 60); ctx.rotate(0.3);
+      ctx.fillStyle = "#f2ecdc"; ctx.beginPath(); ctx.ellipse(0, 0, 30, 36, 0, 0, TAU); ctx.fill(); ctx.strokeStyle = "#0a0410"; ctx.lineWidth = 4; ctx.stroke();
+      this.eye(ctx, -8, -6, 9);
+      ctx.strokeStyle = "#0a0410"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(10, -6, 6, 0, TAU); ctx.stroke();
+      ctx.fillStyle = "#12040c"; ctx.beginPath(); ctx.arc(0, 14, 10, 0, Math.PI); ctx.closePath(); ctx.fill();
+      ctx.restore();
+      // trocitos de isla siendo DEVORADOS
+      for (let i = 0; i < 6; i++) { const st = (this.t * 0.8 + i * 0.17) % 1; ctx.save(); ctx.globalAlpha = 1 - st; ctx.fillStyle = "#3a6a3a"; ctx.translate(150 - st * 120, 90 + i * 88); ctx.rotate(st * 5); ctx.fillRect(-8, -8, 16, 16); ctx.restore(); }
+      ctx.globalAlpha = 1;
+    }
+  }
+  window.DISS_BOSS = { id: "diss", name: "LA DISONANCIA", subtitle: "el acorde que nunca debió sonar", color: "#c01838", transpose: 0, world: 0, mode: "ground", diss: true, make: G => new DissBoss(G) };
+
   window.CODE_BOSS = { id: "requiem", name: "RÉQUIEM", subtitle: "La pieza que El Autor compuso… y enterró", color: "#ffd24a", transpose: 0, world: 0, mode: "ground", code: true, make: G => new RequiemBoss(G) };
 
   window.SECRET_BOSS = { id: "discard", name: "El Descarte", subtitle: "El primer boceto que El Autor borró", color: "#2e2746", transpose: -4, world: 4, mode: "ground", secret: true, make: G => new DiscardBoss(G) };

@@ -286,6 +286,7 @@
     coins: 0, ownedW: ["pea"], ownedC: [], equipW: ["pea", null], equipC: null, equipSuper: "beam",
     defeated: [], beatenNormal: [], beatenExpert: [], grades: {}, collectedCoins: {}, rngDone: {}, difficulty: "regular", world: 1,
     seenIntro: false, seenWorld: {}, finished: false, secretFound: false, secretDefeated: false, secretHinted: false, achAwarded: [], reverseDone: false, requiemUnlocked: false, requiemDefeated: false,
+    dissEscaped: false, dissDefeated: false, cleansed: [],
     stats: { parries: 0, deaths: 0, kills: 0, playtime: 0 }, bossBest: {},
   });
   function rawSlot(i) { try { const s = JSON.parse(localStorage.getItem(SLOT_KEY(i))); if (s && s.ownedW) return s; } catch (e) { } return null; }
@@ -382,7 +383,7 @@
 
   /* ---------------- opciones (globales, no por ranura) ---------------- */
   const OPT_KEY = "ragtime_opts";
-  let OPT = { music: 0.55, sfx: 0.85, shake: true, coop: false, keys: {}, pad: {}, skin: "classic", name: "PIP" };
+  let OPT = { music: 0.55, sfx: 0.85, shake: true, coop: false, keys: {}, pad: {}, skin: "classic", name: "PIP", dev: false };
   try { const o = JSON.parse(localStorage.getItem(OPT_KEY)); if (o) OPT = Object.assign(OPT, o); } catch (e) { }
   if (!OPT.keys) OPT.keys = {}; if (!OPT.pad) OPT.pad = {};
   applyBindings();
@@ -461,6 +462,11 @@
   let bullets = [], projs = [], hazards = [], parts = [], enemies = [], coins = [];
   let boss = null, bossDef = null, bossIndex = 0, platforms = [];
   let shake = 0, flashScreen = 0, hitStop = 0, bossHpChip = 0, hudHurtT = 0;
+  let flightCage = null, infectedFight = false;   // cubo de LA DISONANCIA + peleas contra infectados
+  // PANEL DEV (código 99999999): trampas de pruebas. Cualquier uso MANCHA la partida:
+  // los récords tramposos no se guardan en local ni se suben al leaderboard mundial.
+  let devGod = false, devTaint = false, rushTaint = false;
+  function devMark() { devTaint = true; if (rushActive) rushTaint = true; }
   // Mundo extra (El Reverso de Tinta): gravedad invertible + tinta que sube
   let rev = { grav: 1, inkOn: false, inkT: 0, inkDur: 0, inkPeak: GROUND, inkY: GROUND };
   // mecánicas únicas de RÉQUIEM: eco de tinta (clon retardado), viento de fuelle y lápidas temporales
@@ -520,6 +526,10 @@
     // --- mecánicas únicas de RÉQUIEM ---
     startEcho(dur) { echoT = Math.max(echoT, dur); echoTrail.length = 0; },
     setWind(fx, dur) { windFx = fx; windT = dur; },
+    // --- mecánicas de LA DISONANCIA ---
+    setFlight(on, tiny) { for (const p of players) { p.flight = !!on; p.tiny = !!on && !!tiny; p.vx = 0; p.vy = 0; if (on) p.y = clamp(p.y, 70, H - 160); } },
+    setCage(r) { flightCage = r; },
+    heal(n) { for (const p of players) if (!p.dead && !p.ghost && p.hp < playerMaxHp()) { p.hp = Math.min(playerMaxHp(), p.hp + n); this.floatText(p.x + p.w / 2, p.y - 26, "+♥", "#7af0a0"); this.burst(p.x + p.w / 2, p.y + p.h / 2, { n: 10, color: "#7af0a0", smin: 1, smax: 5 }); } },
     raiseTomb(x) { platforms.push({ x: x - 34, y: GROUND - 92, w: 68, h: 92, tomb: true, until: time + 5 }); this.burst(x, GROUND - 40, { n: 14, color: "#8a8478", smin: 2, smax: 6, up: 3 }); this.shake(6); },
   };
 
@@ -547,6 +557,8 @@
       pal: { head: "#3a3444", head2: "#241e30", rim: "#4a4458", liquid: "#ff4fa3", liquid2: "#ff9ec8", straw: "#ff4fa3", short: "#1a1626", shortDk: "#0e0c18", shoe: "#0a0812", shoe2: "#2a2438", cheek: "rgba(255,79,163,0.35)" } },
     { id: "marble", name: "Mármol", req: s => !!s.requiemDefeated, hint: "vence a RÉQUIEM",
       pal: { head: "#efe9dc", head2: "#cfc5b0", rim: "#f6f0e4", liquid: "#ffd24a", liquid2: "#ffe9a0", straw: "#ffd24a", short: "#8a8478", shortDk: "#5a5548", shoe: "#3a3630", shoe2: "#6a655a", cheek: "rgba(255,210,74,0.4)" } },
+    { id: "diss", name: "Disonante", req: s => !!s.dissDefeated, hint: "silencia a LA DISONANCIA",
+      pal: { head: "#2a1420", head2: "#180a14", rim: "#3a1c2a", liquid: "#ff2448", liquid2: "#ff6a86", straw: "#ff2448", short: "#14060e", shortDk: "#0a0308", shoe: "#08040a", shoe2: "#241018", cheek: "rgba(255,36,72,0.35)" } },
   ];
   function skinUnlocked(sk) { if (!sk.req) return true; for (let i = 0; i < NSLOTS; i++) { const s = rawSlot(i); if (s && sk.req(s)) return true; } return false; }
   function skinPal() { const sk = SKINS.find(s => s.id === OPT.skin) || SKINS[0]; return skinUnlocked(sk) ? sk.pal : SKINS[0].pal; }
@@ -571,12 +583,13 @@
       this.weaponIdx = 0; this.aimX = 1; this.aimY = 0; this.muzzle = 0; this.pinkJump = 0; this.parryGlow = 0; this.coyote = 0; this.jumpBuf = 0; this.pCombo = 0; this.landT = 0; this.stepPh = 1; this.dropT = 0; this.parryBuf = 0; this.skidT = 0; this._exN = false;
       this.shield = save.equipC === "shield"; this.flight = false; this.shrink = 0;
       this.pal = this.idx === 0 ? skinPal() : (PLAYER_PALS[this.idx] || PLAYER_PALS[0]);   // P1 viste su traje elegido
+      this.tiny = false;
       lockToggle = false;
     },
     maxJumps() { return save.equipC === "spring" ? 2 : 1; },
     curWeapon() { return save.equipW[this.weaponIdx] || save.equipW[0] || "pea"; },
     box() {
-      if (this.flight) { const s = this.shrink > 0 ? 0.45 : 0.8, bw = this.w * s, bh = this.h * s; return { x: this.x + (this.w - bw) / 2, y: this.y + (this.h - bh) / 2, w: bw, h: bh }; }
+      if (this.flight) { const s = this.tiny ? 0.5 : this.shrink > 0 ? 0.45 : 0.8, bw = this.w * s, bh = this.h * s; return { x: this.x + (this.w - bw) / 2, y: this.y + (this.h - bh) / 2, w: bw, h: bh }; }
       if (this.duck && this.onGround) return { x: this.x + 5, y: this.y + 34, w: this.w - 10, h: this.h - 34 };
       return { x: this.x + 4, y: this.y + 4, w: this.w - 8, h: this.h - 8 };
     },
@@ -735,6 +748,7 @@
       if (mvx) this.facing = Math.sign(mvx);
       this.x = clamp(this.x, cam.x + 6, cam.x + W - 6 - this.w);
       this.y = clamp(this.y, 44, H - 60 - this.h);
+      if (flightCage) { this.x = clamp(this.x, flightCage.x + 6, flightCage.x + flightCage.w - 6 - this.w); this.y = clamp(this.y, flightCage.y + 6, flightCage.y + flightCage.h - 6 - this.h); }   // encerrado en el CUBO
       // esquive (encoger)
       if (edge && tapped("dash") && this.dashCD <= 0) { this.shrink = 0.5; this.dashCD = 0.85; this.inv = Math.max(this.inv, 0.32); AUDIO.sfx("dash"); G.burst(this.x + this.w / 2, this.y + this.h / 2, { n: 8, color: "#fff", smin: 1, smax: 4 }); }
       // parry con salto
@@ -882,6 +896,7 @@
     },
     hurt() {
       if (this.inv > 0 || this.dead) return;
+      if (devGod) { this.inv = 0.35; G.floatText(this.x + this.w / 2, this.y - 6, "INMORTAL", "#7af0a0"); return; }
       if (this.shield) { this.shield = false; this.inv = 0.9; AUDIO.sfx("parry"); flashScreen = 0.2; rumble(0.15, 0.4, 0.4); G.burst(this.x + this.w / 2, this.y + this.h / 2, { n: 14, color: "#7af0ff", smin: 2, smax: 6 }); G.floatText(this.x + this.w / 2, this.y - 6, "¡ESCUDO!", "#7af0ff"); return; }
       this.hp--; this.inv = 1.4; this.pCombo = 0; fightStats.hit = true; hudHurtT = 0.4; AUDIO.sfx("hit"); shake = 12; flashScreen = 0.25; rumble(0.25, 0.7, 0.5);
       G.burst(this.x + this.w / 2, this.y + this.h / 2, { n: 14, color: "#ff5a5a", smin: 2, smax: 6 });
@@ -915,7 +930,7 @@
     drawPlane() {
       const blink = this.inv > 0 && Math.floor(this.inv * 22) % 2 === 0;
       if (blink) return;
-      const P = this.pal, s = this.shrink > 0 ? 0.55 : 1, cx = this.x + this.w / 2, cy = this.y + this.h / 2;
+      const P = this.pal, s = (this.tiny ? 0.52 : 1) * (this.shrink > 0 ? 0.55 : 1), cx = this.x + this.w / 2, cy = this.y + this.h / 2;
       // humo del motor (nubecitas que quedan atrás)
       for (let i = 0; i < 3; i++) { const st = (time * 1.6 + i * 0.33) % 1; ctx.fillStyle = `rgba(230,225,215,${0.3 * (1 - st)})`; ctx.beginPath(); ctx.arc(cx - 42 - st * 26, cy + Math.sin(time * 6 + i * 2) * 4, 3 + st * 5, 0, TAU); ctx.fill(); }
       ctx.save(); ctx.translate(cx, cy); ctx.rotate(this.tilt || 0); ctx.scale(s, s); ctx.lineJoin = "round"; ctx.lineCap = "round";
@@ -1807,7 +1822,7 @@
   function drawScene(def) {
     if (def && def.id === "requiem") return drawRequiemScene();
     const id = def ? def.id : "spore";
-    const sky = { spore: ["#8fd07a", "#4f8a3e"], pirate: ["#6fb6d8", "#2a5e86"], moth: ["#2a2350", "#0e0a26"], collector: ["#5a1230", "#1a0410"], puppeteer: ["#3a2a52", "#160f24"], chimera: ["#5a2a2a", "#180a0a"], director: ["#2a1030", "#100410"], sentinel: ["#3a2a5a", "#0c0818"], pen: ["#2a2450", "#0a0818"], author: ["#241f3a", "#060410"], discard: ["#3a2f55", "#0a0712"], robot: ["#b0a890", "#5a5240"], jester: ["#4a2440", "#180a18"], ice: ["#cfeefc", "#7fb0d0"], croupier: ["#3a1a44", "#160a20"], twin: ["#aebcd8", "#3a4666"], siphon: ["#2a4a5c", "#0c1a24"], lefthand: ["#c8c4bc", "#4a4854"] }[id] || ["#7a6a9a", "#2a2440"];
+    const sky = { spore: ["#8fd07a", "#4f8a3e"], pirate: ["#6fb6d8", "#2a5e86"], moth: ["#2a2350", "#0e0a26"], collector: ["#5a1230", "#1a0410"], puppeteer: ["#3a2a52", "#160f24"], chimera: ["#5a2a2a", "#180a0a"], director: ["#2a1030", "#100410"], sentinel: ["#3a2a5a", "#0c0818"], pen: ["#2a2450", "#0a0818"], author: ["#241f3a", "#060410"], discard: ["#3a2f55", "#0a0712"], robot: ["#b0a890", "#5a5240"], jester: ["#4a2440", "#180a18"], ice: ["#cfeefc", "#7fb0d0"], croupier: ["#3a1a44", "#160a20"], twin: ["#aebcd8", "#3a4666"], siphon: ["#2a4a5c", "#0c1a24"], lefthand: ["#c8c4bc", "#4a4854"], diss: ["#2a0616", "#040108"] }[id] || ["#7a6a9a", "#2a2440"];
     const g = ctx.createLinearGradient(0, 0, 0, GROUND); g.addColorStop(0, sky[0]); g.addColorStop(1, sky[1]);
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, GROUND);
     if (id === "moth" || id === "collector") { ctx.fillStyle = "rgba(255,255,255,0.85)"; for (let i = 0; i < 40; i++) { const x = (i * 137.5 + 30) % W, y = (i * 53) % (GROUND - 120); ctx.globalAlpha = 0.4 + 0.6 * Math.abs(Math.sin(time + i)); ctx.fillRect(x, y, 2, 2); } ctx.globalAlpha = 1; }
@@ -1832,7 +1847,7 @@
     for (let i = 0; i < 14; i++) { const mx = (i * 97 + time * (7 + i % 5)) % W, my = 110 + (i * 71) % (GROUND - 200) + Math.sin(time * 1.3 + i) * 9; ctx.beginPath(); ctx.arc(mx, my, 1.7, 0, TAU); ctx.fill(); }
     drawParallax(id);
     // suelo temático con degradado
-    const gc = { spore: "#3a6a2a", pirate: "#5a4a2a", moth: "#241a3a", collector: "#3a1018", puppeteer: "#241a34", chimera: "#2a1414", director: "#2a0a18", sentinel: "#241a3a", pen: "#221c38", author: "#1a1630", discard: "#1a1430", robot: "#454048", jester: "#2a1424", ice: "#6f96b0", croupier: "#3a2440", twin: "#2e3550", siphon: "#1e3540", lefthand: "#3a3844" }[id] || "#3a2716";
+    const gc = { spore: "#3a6a2a", pirate: "#5a4a2a", moth: "#241a3a", collector: "#3a1018", puppeteer: "#241a34", chimera: "#2a1414", director: "#2a0a18", sentinel: "#241a3a", pen: "#221c38", author: "#1a1630", discard: "#1a1430", robot: "#454048", jester: "#2a1424", ice: "#6f96b0", croupier: "#3a2440", twin: "#2e3550", siphon: "#1e3540", lefthand: "#3a3844", diss: "#16040e" }[id] || "#3a2716";
     const gg = ctx.createLinearGradient(0, GROUND, 0, H); gg.addColorStop(0, gc); gg.addColorStop(1, shade(gc, 0.55));
     ctx.fillStyle = gg; ctx.fillRect(0, GROUND, W, H - GROUND);
     ctx.fillStyle = "rgba(255,255,255,0.1)"; ctx.fillRect(0, GROUND, W, 5); ctx.fillStyle = "rgba(0,0,0,0.25)"; ctx.fillRect(0, GROUND + 5, W, 3);
@@ -1946,7 +1961,7 @@
   // PRIMER PLANO de la arena: siluetas oscuras en los bordes que enmarcan la acción
   // (capa de profundidad estilo cartoon-cine; nunca invade el centro jugable)
   function drawSceneFront(id) {
-    const fam = ({ spore: "plant", pirate: "plant", moth: "night", collector: "night", puppeteer: "stage", director: "stage", theater: "stage", jester: "stage", requiem: "stage", croupier: "casino", casino: "casino", robot: "pipe", ice: "ice", airship: "cloud", sky: "cloud", sentinel: "inkf", pen: "inkf", author: "inkf", discard: "inkf", void: "inkf", ink: "inkf", drawingboard: "inkf", twin: "mirrorf", siphon: "mirrorf", lefthand: "mirrorf", glacier: "ice", factory: "pipe", dock: "plant", forest: "plant", skyway: "cloud", abyss: "inkf" })[id] || "plant";
+    const fam = ({ spore: "plant", pirate: "plant", moth: "night", collector: "night", puppeteer: "stage", director: "stage", theater: "stage", jester: "stage", requiem: "stage", croupier: "casino", casino: "casino", robot: "pipe", ice: "ice", airship: "cloud", sky: "cloud", sentinel: "inkf", pen: "inkf", author: "inkf", discard: "inkf", void: "inkf", ink: "inkf", drawingboard: "inkf", twin: "mirrorf", siphon: "mirrorf", lefthand: "mirrorf", glacier: "ice", factory: "pipe", dock: "plant", forest: "plant", skyway: "cloud", abyss: "inkf", diss: "inkf" })[id] || "plant";
     const sw1 = Math.sin(time * 0.7) * 7;
     ctx.save(); ctx.lineJoin = "round";
     if (fam === "plant") {
@@ -2262,6 +2277,8 @@
     if (save.world === 4 && save.secretFound) nodes = nodes.concat([{ kind: "secret", x: 640, y: 384 }]);
     // portal al MUNDO EXTRA desde CUALQUIER mundo principal (una vez desbloqueado)
     if (save.world >= 1 && save.world <= 4 && world5Open()) nodes = nodes.concat([{ kind: "travel", to: 5, x: 1210, y: 476, noPath: true, extra: true }]);
+    // LA DISONANCIA: grieta en el Mundo 1 al vencer a los 15 jefes en Normal
+    if (save.world === 1 && dissOpen()) nodes = nodes.concat([{ kind: "diss", x: 900, y: 552, noPath: true }]);
     return nodes;
   }
   function nearestNode() {
@@ -2286,7 +2303,20 @@
       else if (to > 1 && to < 5 && !save.seenWorld[to] && STORY.world[to]) { save.seenWorld[to] = true; persist(); showStory([STORY.world[to]], () => setState("map")); }
       else persist();
     } else if (n.kind === "secret") { AUDIO.sfx("confirm"); AUDIO.sting && AUDIO.sting("phase"); showStory(STORY.secretIntro, () => startSecretBoss()); }
-    else if (unlocked(n.idx)) { AUDIO.sfx("confirm"); pendingRush = false; pendingBoss = n.idx; setState("diffselect"); }
+    else if (n.kind === "diss") {
+      if (save.dissEscaped && !save.dissDefeated && !cleansedAll()) {
+        AUDIO.sfx("deny"); AUDIO.sting && AUDIO.sting("phase");
+        const left = INFECTED.filter(id => !(save.cleansed || []).includes(id)).length;
+        showStory([{ t: "LA HERIDA SIGUE ABIERTA", x: "La Disonancia se esconde tras sus infectados. Purifica a los " + left + " jefes marcados con su aura (mundos 1 al 4) y volverá a dar la cara… más fuerte que nunca.", c: "#ff3a5e" }], () => setState("map"));
+      } else {
+        AUDIO.sfx("confirm"); AUDIO.sting && AUDIO.sting("phase");
+        showStory(save.dissEscaped && cleansedAll() && !save.dissDefeated ? STORY.dissFinal : STORY.dissIntro, startDissBoss);
+      }
+    }
+    else if (unlocked(n.idx)) {
+      if (isInfected(BOSSES[n.idx].id)) { AUDIO.sfx("confirm"); AUDIO.sting && AUDIO.sting("phase"); startInfected(n.idx); return; }
+      AUDIO.sfx("confirm"); pendingRush = false; pendingBoss = n.idx; setState("diffselect");
+    }
     else AUDIO.sfx("deny");
   }
   const MAP_OPT = { x: 30, y: 24, w: 132, h: 34 }, MAP_HOME = { x: 172, y: 24, w: 132, h: 34 };
@@ -2516,10 +2546,35 @@
         ctx.strokeStyle = "#ff4fa3"; ctx.lineWidth = 3; for (let i = 0; i < 5; i++) { const a = time * 1.5 + i * (TAU / 5); ctx.beginPath(); ctx.moveTo(nd.x, nd.y); ctx.lineTo(nd.x + Math.cos(a) * (pr - 6), nd.y + Math.sin(a) * (pr - 6)); ctx.stroke(); }
         bigText(save.secretDefeated ? "★" : "?", nd.x, nd.y + 9, 28, "#ff9ec8");
         bigText("¿· ? ·?", nd.x, nd.y + 52, 12, "#ff9ec8");
+      } else if (nd.kind === "diss") {
+        // la GRIETA de la Disonancia: nota rota latiendo con relámpagos
+        const pu = 0.5 + Math.sin(time * 3.4) * 0.5;
+        ctx.save(); ctx.shadowColor = "#ff2448"; ctx.shadowBlur = 20 + pu * 16;
+        ctx.fillStyle = "#0a0410"; ctx.beginPath(); ctx.arc(nd.x, nd.y, 33 + pu * 3, 0, TAU); ctx.fill();
+        ctx.strokeStyle = fc ? "#fff" : "#c01838"; ctx.lineWidth = fc ? 6 : 4; ctx.stroke(); ctx.restore();
+        ctx.save(); ctx.translate(nd.x, nd.y); ctx.rotate(Math.sin(time * 2) * 0.12);
+        ctx.strokeStyle = "#ff3a5e"; ctx.lineWidth = 4; ctx.lineCap = "round";
+        ctx.beginPath(); ctx.moveTo(7, -16); ctx.lineTo(7, 8); ctx.stroke();
+        ctx.fillStyle = "#ff3a5e"; ctx.beginPath(); ctx.ellipse(2, 10, 7, 5, -0.4, 0, TAU); ctx.fill();
+        ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-13, -11); ctx.lineTo(-3, -3); ctx.lineTo(-11, 5); ctx.stroke();   // la grieta
+        ctx.restore();
+        for (let i = 0; i < 2; i++) { const a2 = time * 3 + i * Math.PI; ctx.strokeStyle = `rgba(255,58,94,${0.4 + Math.sin(time * 7 + i * 2) * 0.3})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(nd.x + Math.cos(a2) * 36, nd.y + Math.sin(a2) * 36); ctx.lineTo(nd.x + Math.cos(a2) * 48 + rand(-4, 4), nd.y + Math.sin(a2) * 48 + rand(-4, 4)); ctx.stroke(); }
+        bigText(save.dissDefeated ? "LA DISONANCIA ★" : "LA DISONANCIA", nd.x, nd.y + 56, 12, "#ff3a5e");
+        bigText("☠ LOCURA", nd.x, nd.y - 46, 11, "#c050ff");
       } else {
         const def = BOSSES[nd.idx], unl = unlocked(nd.idx), done = save.defeated.includes(def.id), grade = save.grades[def.id];
+        const inf = isInfected(def.id);
         const men = unl && !done ? Math.sin(time * 2.6 + nd.x) * 2 : 0;   // los pendientes "respiran"
-        ctx.save(); if (fc) { ctx.shadowColor = "#ffd24a"; ctx.shadowBlur = 22; }
+        // aura MALDITA de los infectados por la Disonancia
+        if (inf) {
+          const ip = 0.5 + Math.sin(time * 4 + nd.x) * 0.4;
+          ctx.save(); ctx.globalCompositeOperation = "lighter";
+          const ig2 = ctx.createRadialGradient(nd.x, nd.y, 12, nd.x, nd.y, 66);
+          ig2.addColorStop(0, `rgba(192,24,56,${0.2 + ip * 0.12})`); ig2.addColorStop(1, "rgba(80,0,40,0)");
+          ctx.fillStyle = ig2; ctx.beginPath(); ctx.arc(nd.x, nd.y, 66, 0, TAU); ctx.fill(); ctx.restore();
+          for (let i = 0; i < 3; i++) { const st = (time * 0.8 + i * 0.33) % 1; ctx.fillStyle = `rgba(40,4,20,${0.5 * (1 - st)})`; ctx.beginPath(); ctx.arc(nd.x + Math.sin(time * 2 + i * 2.1) * 26, nd.y - 20 - st * 46, 3.5 + st * 6, 0, TAU); ctx.fill(); }
+        }
+        ctx.save(); if (fc) { ctx.shadowColor = inf ? "#ff2448" : "#ffd24a"; ctx.shadowBlur = 22; }
         // marco del medallón con bisel
         const mg2 = ctx.createRadialGradient(nd.x - 10, nd.y - 12, 6, nd.x, nd.y, 42); mg2.addColorStop(0, "#7a5430"); mg2.addColorStop(1, "#432a12");
         ctx.fillStyle = mg2; ctx.beginPath(); ctx.arc(nd.x, nd.y, 40, 0, TAU); ctx.fill();
@@ -2544,6 +2599,12 @@
           for (let k2 = -3; k2 <= 3; k2++) { ctx.beginPath(); ctx.arc(nd.x + k2 * 9, nd.y + k2 * 7.2, 3.2, 0, TAU); ctx.stroke(); ctx.beginPath(); ctx.arc(nd.x - k2 * 9, nd.y + k2 * 7.2, 3.2, 0, TAU); ctx.stroke(); }
         }
         ctx.restore();
+        if (inf) {
+          // ojos poseídos + sello de infección
+          const ip2 = 0.6 + Math.sin(time * 6) * 0.4;
+          ctx.fillStyle = `rgba(255,36,72,${ip2})`; ctx.beginPath(); ctx.arc(nd.x - 7, nd.y - 4 + men, 3.4, 0, TAU); ctx.arc(nd.x + 7, nd.y - 4 + men, 3.4, 0, TAU); ctx.fill();
+          bigText("☣ INFECTADO", nd.x, nd.y - 50, 11, "#ff3a5e");
+        }
         if (def.mode === "flight") bigText("✈", nd.x + 30, nd.y - 24, 16, "#cfe6ff");
         bigText(unl ? def.name : "???", nd.x, nd.y + 56, 13, "#fff");
         if (done) {
@@ -2581,6 +2642,8 @@
       else if (near.kind === "travel") { const dest = near.back ? (save.prevWorld || 1) : near.to; const open = travelOpen(dest); label = near.back ? "Volver ⛵" : (near.to === 5 ? "MUNDO EXTRA ⛵" : "Viajar al Mundo " + near.to + " ⛵"); sub = open ? "Z/Ⓐ para viajar" : (near.to === 2 ? "Vence al Coleccionista" : near.to === 3 ? "Vence al Crupier" : near.to === 4 ? "Vence al Director" : "Termina el juego (El Autor)"); }
       else if (near.kind === "rng") { label = RNG_LEVELS[near.rid].name; sub = RNG_LEVELS[near.rid].mode === "flight" ? "Z/Ⓐ — ¡nivel de VUELO! junta ◎" : "Z/Ⓐ — corre, dispara y junta ◎"; }
       else if (near.kind === "secret") { label = save.secretDefeated ? "El Descarte (vencido)" : "¿· EL DESCARTE ·?"; sub = "Z/Ⓐ — jefe SECRETO · muy difícil"; }
+      else if (near.kind === "diss") { label = "⛧ LA DISONANCIA"; sub = save.dissEscaped && !cleansedAll() && !save.dissDefeated ? "purifica a los 5 infectados primero" : "jefe FINAL secreto · SIEMPRE en Locura"; }
+      else if (isInfected(BOSSES[near.idx] && BOSSES[near.idx].id)) { label = "☣ " + BOSSES[near.idx].name + " (INFECTADO)"; sub = "Z/Ⓐ — pelea en LOCURA · purifícalo"; }
       else { label = unlocked(near.idx) ? BOSSES[near.idx].name : "Bloqueado"; sub = unlocked(near.idx) ? "Z/Ⓐ para retar" : "Vence al jefe anterior"; }
       ctx.fillStyle = "rgba(20,12,8,0.85)"; roundRect(clamp(near.x - 130, 8, W - 268), near.y - 116, 260, 50, 10); ctx.fill();
       ctx.strokeStyle = "#ffd24a"; ctx.lineWidth = 3; ctx.stroke();
@@ -3083,7 +3146,7 @@
   /* ============================================================
      FLUJO DE COMBATE
      ============================================================ */
-  function resetWorld() { bullets = []; projs = []; hazards = []; parts = []; enemies = []; coins = []; superArtFx = null; platforms = []; cam.x = 0; rev.grav = 1; rev.inkOn = false; rev.inkY = GROUND; echoT = 0; echoTrail.length = 0; windT = 0; windFx = 0; }
+  function resetWorld() { bullets = []; projs = []; hazards = []; parts = []; enemies = []; coins = []; superArtFx = null; platforms = []; cam.x = 0; rev.grav = 1; rev.inkOn = false; rev.inkY = GROUND; echoT = 0; echoTrail.length = 0; windT = 0; windFx = 0; flightCage = null; infectedFight = false; devTaint = devGod; }
   function startBoss(idx) {
     curMode = "boss"; curIndex = idx; bossDef = BOSSES[idx]; bossIndex = idx; worldW = W;
     resetWorld();
@@ -3118,11 +3181,11 @@
   let rushActive = false, rushIdx = 0, rushTime = 0, rushResult = "", rushRecord = false, musPhase = 1;
   const RUSH_KEY = "ragtime_rush";
   function rushBest() { try { return JSON.parse(localStorage.getItem(RUSH_KEY)) || {}; } catch (e) { return {}; } }
-  function startRush() { rushActive = true; rushIdx = 0; rushTime = 0; rushResult = ""; rushRecord = false; startBoss(0); }
+  function startRush() { rushActive = true; rushIdx = 0; rushTime = 0; rushResult = ""; rushRecord = false; rushTaint = false; startBoss(0); }
   function rushAdvance() {
     rushIdx++;
     if (rushIdx >= BOSSES.filter(b => b.world <= 4).length) {   // el Boss Rush son los 15 jefes principales (el Reverso queda aparte)
-      const b = rushBest(), k = DIFF.key; rushRecord = (b[k] == null || rushTime < b[k]);
+      const b = rushBest(), k = DIFF.key; rushRecord = !rushTaint && !devTaint && (b[k] == null || rushTime < b[k]);
       if (rushRecord) {
         b[k] = rushTime; try { localStorage.setItem(RUSH_KEY, JSON.stringify(b)); } catch (e) { }
         const entry = { mode: "rush", diff: k, time: +rushTime.toFixed(1), name: OPT.name || "PIP" };
@@ -3165,13 +3228,18 @@
     save.stats.playtime += fightStats.time; save.stats.parries += fightStats.parries; persist();
     rngBonus = bonus; AUDIO.music("victory"); AUDIO.sfx("ko"); rumble(0.4, 0.8, 0.8); setState("rngwon");
   }
-  function retry() { if (curMode === "rng") { if (curIndex < 0 || (curLevel && curLevel.tutorial)) startTutorial(); else startRng(curIndex); } else if (bossDef && bossDef.secret) startSecretBoss(); else if (bossDef && bossDef.code) startCodeBoss(); else startBoss(curIndex); }
+  function retry() { if (curMode === "rng") { if (curIndex < 0 || (curLevel && curLevel.tutorial)) startTutorial(); else startRng(curIndex); } else if (bossDef && bossDef.secret) startSecretBoss(); else if (bossDef && bossDef.code) startCodeBoss(); else if (bossDef && bossDef.diss) startDissBoss(); else if (infectedFight) startInfected(curIndex); else startBoss(curIndex); }
   function bossesOf(w) { const a = []; BOSSES.forEach((b, i) => { if (b.world === w) a.push(i); }); return a; }
   function rngOf(w) { const a = []; RNG_LEVELS.forEach((l, i) => { if (l.world === w) a.push(i); }); return a; }
   function world2Open() { return save.defeated.includes("collector"); }
   function world3Open() { return save.defeated.includes("croupier"); }
   function world4Open() { return save.defeated.includes("director"); }
   function world5Open() { return !!save.finished; }   // El Reverso se abre al terminar el juego (vencer a El Autor)
+  // LA DISONANCIA: se abre al vencer a los 15 jefes principales en Normal (o más)
+  function dissOpen() { return BOSSES.filter(b => b.world <= 4).every(b => (save.beatenNormal || []).includes(b.id)); }
+  const INFECTED = ["spore", "robot", "ice", "puppeteer", "sentinel"];   // los 5 jefes que infecta al escapar
+  function isInfected(id) { return !!save.dissEscaped && !save.dissDefeated && INFECTED.includes(id) && !(save.cleansed || []).includes(id); }
+  function cleansedAll() { return INFECTED.every(id => (save.cleansed || []).includes(id)); }
   function travelOpen(to) { return to <= 1 ? true : to === 2 ? world2Open() : to === 3 ? world3Open() : to === 4 ? world4Open() : world5Open(); }
   function unlocked(i) {
     const w = BOSSES[i].world;
@@ -3205,13 +3273,13 @@
   // transición de IRIS (el círculo que se abre, marca de la casa en los cartoons de los 30)
   let iris = 0, irisCX = W / 2, irisCY = H / 2; const IRIS_DUR = 0.45;
   function setState(s) {
-    const wasPaused = state === "paused";
+    const wasPaused = state === "paused" || state === "dev";
     state = s; stateT = 0; iris = IRIS_DUR;
     // el iris se abre CENTRADO EN TI al entrar en combate (más cine)
     if (s === "intro" || s === "rngintro") { irisCX = clamp(player.x + player.w / 2 - cam.x, 120, W - 120); irisCY = clamp(player.y + player.h / 2, 120, H - 120); }
     else { irisCX = W / 2; irisCY = H / 2; }
-    // en pausa la banda toca BAJITO desde el foso; al volver, a plena voz
-    if (s === "paused") { if (AUDIO.setVol) AUDIO.setVol(OPT.music * 0.35, OPT.sfx); }
+    // en pausa (y en el panel dev) la banda toca BAJITO desde el foso; al volver, a plena voz
+    if (s === "paused" || s === "dev") { if (AUDIO.setVol) AUDIO.setVol(OPT.music * 0.35, OPT.sfx); }
     else if (wasPaused) applyOpts();
     focus = (s === "diffselect") ? ["simple", "regular", "expert", "locura"].indexOf(save.difficulty) : 0; if (focus < 0) focus = 1;
   }
@@ -3249,6 +3317,26 @@
       { t: "EL REVERSO DE TINTA", x: "La función terminó, pero una gota cae al REVÉS. Pip mira el charco y su reflejo no la imita: le hace señas para que cruce al otro lado del tintero.", c: "#bfe0ff" },
       { t: "Al otro lado del espejo", x: "Bajo la isla existe su Reverso: un mundo dado la vuelta donde la tinta SUBE y la gravedad miente. Aquí viven los reflejos, hartos de copiar.", c: "#9fc4e8" },
       { t: "La Mano Zurda", x: "Si El Autor dibujó el mundo con la derecha, alguien lo BORRA con la izquierda. Cruza el espejo, vence a tu reflejo y enfréntate a la Mano Zurda.", c: "#c8a8ff" },
+    ],
+    // ---- LA DISONANCIA: el jefe final secreto (siempre en LOCURA) ----
+    dissIntro: [
+      { t: "Una grieta en la partitura", x: "Con los quince deudores vencidos, la isla por fin suena afinada. Y justo por eso SE OYE: debajo de todo el jazz hay una nota que lleva sonando desde siempre… desafinada a propósito.", c: "#ff3a5e" },
+      { t: "LA DISONANCIA", x: "No es un dibujo del Autor. Es lo que sobró cuando afinó el mundo: cada nota torcida, cada acorde roto, barridos bajo la alfombra y VIVOS. Dirige una orquesta que nadie quiso escuchar.", c: "#c01838" },
+      { t: "Advertencia", x: "No conoce la piedad ni el compás: SIEMPRE pelea en LOCURA. Trae tus mejores armas, tus mejores parrys y despídete de tu tranquilidad. Que empiece el anti-concierto.", c: "#c050ff" },
+    ],
+    dissEscape: [
+      { t: "…¿lo lograste?", x: "La máscara se agrieta, el acorde se apaga… pero la risa NO. La Disonancia se deshace en notas rotas que se escurren entre tus dedos y huyen hacia el mar.", c: "#ff3a5e" },
+      { t: "LA INFECCIÓN", x: "Su eco se ha metido dentro de CINCO jefes de la isla: un aura oscura los envuelve y los vuelve más feroces que nunca. Los reconocerás en el mapa por su aura maldita.", c: "#c01838" },
+      { t: "Purifica la isla", x: "Vence a los cinco infectados (mundos 1 al 4) para arrancarle sus escondites. Entonces —y solo entonces— la Disonancia tocará su ACORDE FINAL.", c: "#7af0a0" },
+    ],
+    dissFinal: [
+      { t: "El escenario está limpio", x: "Sin infectados tras los que esconderse, la Disonancia acepta el duelo. Ya no le queda ningún truco… salvo TODOS a la vez.", c: "#ff3a5e" },
+      { t: "EL ACORDE FINAL", x: "Seis movimientos. El último no lo ha escuchado nadie y ella misma le tiene miedo. Es tu función, tacita: que el jazz suene más fuerte que el ruido.", c: "#ffd24a" },
+    ],
+    dissWin: [
+      { t: "Silencio… del bueno", x: "El acorde final se ROMPE en tus manos. La máscara cae, y detrás no hay monstruo: solo un montoncito de notas torcidas que nadie quiso tocar jamás.", c: "#ff3a5e" },
+      { t: "Afinada", x: "Las recoges y las pones en el pentagrama, torcidas como son. Y suenan. Porque hasta la nota más rota encuentra su canción si alguien la deja entrar en la banda.", c: "#7af0a0" },
+      { t: "★ LA DISONANCIA, VENCIDA ★", x: "Has superado el desafío más difícil de RAGTIME RUMBLE: seis fases, en Locura, contra el anti-jazz en persona. Tuyo para siempre: el traje DISONANTE. Póntelo con orgullo.", c: "#ffd24a" },
     ],
     requiemIntro: [
       { t: "La losa se abre", x: "Las ocho cifras giran como engranajes. Bajo el Mausoleo no hay huesos: hay PARTITURAS. Miles. Y una figura de mármol que las custodia desde antes del primer dibujo.", c: "#ffd24a" },
@@ -3774,7 +3862,7 @@
   function galleryReplay(i) { if (unlocked(i)) { AUDIO.sfx("confirm"); pendingRush = false; pendingBoss = i; setState("diffselect"); } else AUDIO.sfx("deny"); }
   /* ---- panel de CÓDIGO del Mausoleo (53149900 despierta a RÉQUIEM) ---- */
   const CODE_BTN = { x: 28, y: 26, w: 212, h: 40 };
-  const REQ_CODE = "53149900", BRASS_CODE = "67676767";
+  const REQ_CODE = "53149900", BRASS_CODE = "67676767", DEV_CODE = "99999999";
   let codeInput = "", codeWrong = 0;
   function codeRects() {
     const r = [], kw = 78, gap = 14, x0 = W / 2 - (kw * 3 + gap * 2) / 2, y0 = 268;
@@ -3804,6 +3892,18 @@
           x: had ? "La losa zumba un riff conocido: la big band ya toca para ti. (Si la soltaste, re-equípala en la tienda.)"
                  : "Las ocho cifras silban un riff prohibido y de la grieta sale UN ARMA EXAGERADA: toda la orquesta disparando a la vez. Queda equipada en tu segunda ranura. Úsala con vergüenza.",
           c: "#ffd24a",
+        }], () => setState("gallery"));
+      } else if (codeInput === DEV_CODE) {
+        // 99999999: PANEL DE DESARROLLADOR — trampas de pruebas en el menú de pausa
+        codeInput = "";
+        OPT.dev = !OPT.dev; saveOpts();
+        if (!OPT.dev) devGod = false;
+        AUDIO.sfx("buy"); flashScreen = 0.4; shake = 8;
+        showStory([{
+          t: OPT.dev ? "🛠 PANEL DEV" : "🛠 PANEL DEV APAGADO",
+          x: OPT.dev ? "Nueve nueves: la tramoya del teatro se abre. En el menú de PAUSA de cualquier pelea encontrarás el Panel Dev (inmortal, curar, matar jefe, saltar fase…). Ojo: los récords con trampas NO cuentan ni se suben a la tabla mundial."
+                     : "La tramoya se cierra. El Panel Dev desaparece del menú de pausa y todo vuelve a ser legal.",
+          c: "#7af0a0",
         }], () => setState("gallery"));
       } else { AUDIO.sfx("deny"); codeWrong = 0.7; codeInput = ""; }
     }
@@ -3865,6 +3965,28 @@
     bigText("Esc/Ⓑ — volver al Mausoleo", W / 2, H - 20, 15, "#caa");
   }
   let reqPhase = 1;
+  function startDissBoss() {
+    curMode = "boss"; curIndex = -4; bossDef = window.DISS_BOSS; bossIndex = -4; worldW = W;
+    resetWorld();
+    DIFF = DIFFS.locura;                                   // SIEMPRE en Locura, sin excepción
+    G.dissR2 = !!save.dissEscaped && cleansedAll();        // 2ª ronda: existe la fase 6
+    platforms = [{ x: 250, y: GROUND - 160, w: 150, h: 22 }, { x: W - 400, y: GROUND - 160, w: 150, h: 22 }];
+    spawnPlayers(170, GROUND - player.h, false);
+    boss = window.DISS_BOSS.make(G);
+    // su vida es ABSOLUTA (diseñada a mano): sin el ×1.35 de Locura encima, que la volvía esponja
+    winDrop = ""; musPhase = 1;
+    fightStats = { time: 0, parries: 0, supers: 0, hit: false };
+    setState("intro"); introStage = 0;
+    AUDIO.music("diss");
+    AUDIO.sting && AUDIO.sting("go");
+  }
+  function startInfected(idx) {
+    DIFF = DIFFS.locura;                                   // los infectados pelean en Locura
+    startBoss(idx);
+    infectedFight = true;
+    boss.maxHp = Math.round(boss.maxHp * 1.3); boss.hp = boss.maxHp;   // y con MÁS vida
+    AUDIO.music("diss", { transpose: (BOSSES[idx].transpose || 0) % 12 });
+  }
   function startCodeBoss() {
     curMode = "boss"; curIndex = -3; bossDef = window.CODE_BOSS; bossIndex = -3; worldW = W;
     resetWorld();
@@ -4244,6 +4366,7 @@
     else if (state === "rngintro") { if (stateT > 1.2) setState("rng"); }
     else if (state === "rng") updateRng(dt, edge);
     else if (state === "paused") updatePause(dt, edge);
+    else if (state === "dev") updateDev(dt, edge);
     else if (state === "won") updateEnd(dt, edge, true);
     else if (state === "rngwon") updateRngWon(dt, edge);
     else if (state === "lost") updateEnd(dt, edge, false);
@@ -4283,8 +4406,12 @@
     // TODOS los jefes: al cambiar de fase la banda SUBE un semitono (la pelea se siente más urgente)
     else if (boss && bossDef && boss.phase !== musPhase) {
       musPhase = boss.phase;
-      const trk = (bossDef.secret || bossDef.id === "collector" || bossDef.id === "croupier") ? "boss" : "battle";
-      AUDIO.music(trk, { transpose: (bossDef.transpose || 0) + (boss.phase - 1) });
+      if (bossDef.diss) { flashScreen = Math.max(flashScreen, 0.5); AUDIO.music("diss", { transpose: [0, 1, 2, 4, 5, 7][musPhase - 1] || 0 }); }
+      else if (infectedFight) AUDIO.music("diss", { transpose: ((bossDef.transpose || 0) + musPhase - 1) % 12 });
+      else {
+        const trk = (bossDef.secret || bossDef.id === "collector" || bossDef.id === "croupier") ? "boss" : "battle";
+        AUDIO.music(trk, { transpose: (bossDef.transpose || 0) + (boss.phase - 1) });
+      }
     }
     updateReverse(dt); if (boss && boss.dead) rev.grav = 1;   // al morir el jefe, el mundo vuelve a su sitio
     // eco de tinta: un clon retardado repite TUS movimientos y castiga quedarse quieto
@@ -4320,6 +4447,25 @@
         showStory(STORY.requiemWin, () => { AUDIO.music("menu"); setState("gallery"); });
         return;
       }
+      if (bossDef.diss) { // LA DISONANCIA: en la 1ª ronda ESCAPA; en la 2ª cae de verdad
+        G.setFlight(false); G.setCage(null); windT = 0; windFx = 0;
+        if (!G.dissR2) {
+          save.dissEscaped = true; if (!save.cleansed) save.cleansed = []; persist();
+          AUDIO.sfx("ko"); rumble(0.7, 1.0, 1.0); flashScreen = 0.7;
+          showStory(STORY.dissEscape, () => { AUDIO.music("menu"); setState("map"); });
+        } else {
+          save.dissDefeated = true; persist();
+          AUDIO.sfx("ko"); rumble(0.9, 1.0, 1.0); flashScreen = 0.85;
+          showStory(STORY.dissWin, () => { AUDIO.music("menu"); setState("map"); });
+        }
+        return;
+      }
+      if (infectedFight) { // jefe PURIFICADO de la infección de la Disonancia
+        if (!save.cleansed) save.cleansed = [];
+        if (!save.cleansed.includes(bossDef.id)) save.cleansed.push(bossDef.id);
+        infectedFight = false;
+        G.floatText(W / 2, 200, "¡PURIFICADO!", "#7af0a0");
+      }
       if (!save.defeated.includes(bossDef.id)) save.defeated.push(bossDef.id);
       if (DIFF.key !== "simple" && !save.beatenNormal.includes(bossDef.id)) save.beatenNormal.push(bossDef.id);
       if ((DIFF.key === "expert" || DIFF.key === "locura") && !save.beatenExpert.includes(bossDef.id)) save.beatenExpert.push(bossDef.id);
@@ -4327,7 +4473,7 @@
       winGrade = computeGrade();
       if (!save.grades[bossDef.id] || "DCBAS".indexOf(winGrade) > "DCBAS".indexOf(save.grades[bossDef.id])) save.grades[bossDef.id] = winGrade;
       save.stats.kills++; save.stats.parries += fightStats.parries; save.stats.playtime += fightStats.time;
-      if (!save.bossBest[bossDef.id] || fightStats.time < save.bossBest[bossDef.id]) { save.bossBest[bossDef.id] = fightStats.time; lbPost({ mode: "boss", id: bossDef.id, diff: DIFF.key, time: +fightStats.time.toFixed(1), name: OPT.name || "PIP" }); }
+      if (!devTaint && (!save.bossBest[bossDef.id] || fightStats.time < save.bossBest[bossDef.id])) { save.bossBest[bossDef.id] = fightStats.time; lbPost({ mode: "boss", id: bossDef.id, diff: DIFF.key, time: +fightStats.time.toFixed(1), name: OPT.name || "PIP" }); }
       persist();
       AUDIO.sfx("ko"); rumble(0.6, 1.0, 1.0);
       if (bossDef.id === "author") { save.finished = true; persist(); flashScreen = 0.6; showStory(STORY.ending, () => { AUDIO.music("menu"); setState("title"); }); }
@@ -4338,14 +4484,62 @@
     const lost = coop ? players.every(p => p.ghost || p.dead) : (player.dead && player.y > H + 100);
     if (lost && (!boss || !boss.dead)) { if (rushActive) { rushDie(); return; } save.stats.deaths++; save.stats.parries += fightStats.parries; save.stats.playtime += fightStats.time; persist(); AUDIO.stop(); AUDIO.sfx("lose"); setState("lost"); }
   }
+  const pauseItems = () => OPT.dev ? ["Reanudar", "Opciones", "Panel Dev", "Reintentar", "Abandonar"] : ["Reanudar", "Opciones", "Reintentar", "Abandonar"];
   function updatePause(dt, edge) {
     if (edge && tapped("pause")) { setState(curMode === "rng" ? "rng" : "fight"); return; }
-    const items = ["Reanudar", "Opciones", "Reintentar", "Abandonar"];
+    const items = pauseItems();
     navList(items.length, edge);
-    if (edge && tapped("confirm")) doPause(focus);
-    items.forEach((t, i) => { const r = { x: W / 2 - 130, y: 300 + i * 60, w: 260, h: 48 }; if (pointIn(mouse, r)) { focus = i; if (mClicked) doPause(i); } });
+    if (edge && tapped("confirm")) doPause(items[focus]);
+    items.forEach((t, i) => { const r = { x: W / 2 - 130, y: 300 + i * 60, w: 260, h: 48 }; if (pointIn(mouse, r)) { focus = i; if (mClicked) doPause(t); } });
   }
-  function doPause(i) { if (i === 1) { openOptions("paused"); return; } AUDIO.sfx("confirm"); if (i === 0) setState(curMode === "rng" ? "rng" : "fight"); else if (i === 2) retry(); else { AUDIO.music("menu"); setState("map"); } }
+  function doPause(t) {
+    if (t === "Opciones") { openOptions("paused"); return; }
+    AUDIO.sfx("confirm");
+    if (t === "Reanudar") setState(curMode === "rng" ? "rng" : "fight");
+    else if (t === "Panel Dev") setState("dev");
+    else if (t === "Reintentar") retry();
+    else { AUDIO.music("menu"); setState("map"); }
+  }
+  /* ---- PANEL DEV (código 99999999 del Mausoleo): trampas de pruebas ---- */
+  function devItems() {
+    const it = [
+      { t: "☠ Inmortal: " + (devGod ? "SÍ" : "NO"), f: () => { devGod = !devGod; if (devGod) devMark(); } },
+      { t: "❤ Curar corazones", f: () => { devMark(); for (const p of players) if (!p.dead) { p.hp = playerMaxHp(); p.ghost = 0; G.floatText(p.x + p.w / 2, p.y - 8, "+❤ MAX", "#7af0a0"); } } },
+    ];
+    if (curMode === "boss" && boss && !boss.dead) {
+      if (boss.thresholds && boss.thresholds.length) it.push({ t: "⏭ Siguiente fase", f: () => { devMark(); boss.hit(Math.max(1, boss.hp - boss.maxHp * boss.thresholds[0] + 1)); setState("fight"); } });
+      it.push({ t: "💀 Matar jefe", f: () => { devMark(); boss.hit(boss.hp + 99999); setState("fight"); } });
+    }
+    it.push({ t: "🪙 +100 monedas", f: () => { devMark(); save.coins += 100; persist(); AUDIO.sfx("coin"); } });
+    it.push({ t: "🔓 Desbloquear todo", f: () => { devMark(); devUnlockAll(); } });
+    it.push({ t: "Volver", f: () => { AUDIO.sfx("select"); setState("paused"); } });
+    return it;
+  }
+  function devUnlockAll() {
+    for (const b of BOSSES) { if (!save.defeated.includes(b.id)) save.defeated.push(b.id); if (!save.beatenNormal.includes(b.id)) save.beatenNormal.push(b.id); }
+    for (const k in WEAPONS) if (!save.ownedW.includes(k)) save.ownedW.push(k);
+    for (const k in CHARMS) if (!save.ownedC.includes(k)) save.ownedC.push(k);
+    save.world = Math.max(save.world, 4); save.finished = true; save.secretFound = true; save.requiemUnlocked = true;
+    save.coins += 50; persist(); checkAch(true);
+  }
+  function devRect(i) { return { x: W / 2 - 160, y: 236 + i * 52, w: 320, h: 44 }; }
+  function updateDev(dt, edge) {
+    if (edge && (tapped("pause") || tapped("back"))) { AUDIO.sfx("select"); setState("paused"); return; }
+    const items = devItems();
+    navList(items.length, edge);
+    if (edge && tapped("confirm")) { AUDIO.sfx("confirm"); items[focus].f(); return; }
+    items.forEach((it, i) => { const r = devRect(i); if (pointIn(mouse, r)) { focus = i; if (mClicked) { AUDIO.sfx("confirm"); it.f(); } } });
+  }
+  function drawDev() {
+    ctx.fillStyle = "rgba(0,0,0,0.68)"; ctx.fillRect(0, 0, W, H);
+    decoPanel(W / 2 - 210, 118, 420, 512);
+    bigText("🛠", W / 2, 168, 26, "#7af0a0");
+    bigText("PANEL DEV", W / 2, 210, 44, "#7af0a0");
+    const items = devItems();
+    items.forEach((it, i) => drawButtonRect(devRect(i), it.t, focus === i));
+    ctx.fillStyle = "#9ec8a8"; ctx.font = "italic 13px Trebuchet MS"; ctx.textAlign = "center";
+    ctx.fillText("Trampas de pruebas: los récords de esta pelea no se guardan ni se suben.", W / 2, 250 + items.length * 52);
+  }
   function updateEnd(dt, edge, won) {
     if (won && boss && Math.random() < 0.05) { const hb = boss.getHitboxes()[0]; G.burst(hb.x + rand(0, hb.w), hb.y + rand(0, hb.h), { n: 4, color: pick(["#ffd24a", "#fff"]) }); }
     const items = won ? ["Continuar"] : ["Reintentar", "A la isla"];
@@ -4413,12 +4607,38 @@
           fg2.addColorStop(0, `rgba(255,255,255,${clamp(b.flash * 6, 0, 0.45)})`); fg2.addColorStop(1, "rgba(255,255,255,0)");
           ctx.fillStyle = fg2; ctx.beginPath(); ctx.arc(bx, bcy, rad, 0, TAU); ctx.fill(); ctx.restore();
         }
+        // aura MALDITA de los jefes infectados por la Disonancia
+        if (infectedFight && !b.dead) {
+          ctx.save(); ctx.globalCompositeOperation = "lighter";
+          const ag2 = ctx.createRadialGradient(bx, bcy, 10, bx, bcy, rad * 1.3);
+          ag2.addColorStop(0, `rgba(192,24,56,${0.14 + Math.sin(time * 4) * 0.05})`); ag2.addColorStop(1, "rgba(80,0,40,0)");
+          ctx.fillStyle = ag2; ctx.beginPath(); ctx.arc(bx, bcy, rad * 1.3, 0, TAU); ctx.fill(); ctx.restore();
+          for (let i = 0; i < 4; i++) {
+            const st = (time * 0.7 + i * 0.25) % 1;
+            ctx.fillStyle = `rgba(40,4,20,${0.55 * (1 - st)})`;
+            ctx.beginPath(); ctx.arc(bx + Math.sin(time * 2 + i * 2.1) * rad * 0.6, bcy - st * rad * 1.35, 5 + st * 9, 0, TAU); ctx.fill();
+          }
+        }
       };
       if (flight) {
         if (curMode === "rng") { drawCoins(); drawEnemies(); ctx.fillStyle = "#1a120a"; for (let yy = 0; yy < H; yy += 30) { ctx.fillStyle = (Math.floor(yy / 30) % 2) ? "#fff" : "#1a120a"; ctx.fillRect(worldW - 30, yy, 30, 30); } }
         if (boss) juiceBoss(boss);
       } else if (curMode === "rng") { drawRngFg(curLevel); drawCoins(); drawEnemies(); }
       else { drawScene(bossDef); if (boss) { const hb = boss.getHitboxes()[0]; if (hb) { ctx.save(); ctx.fillStyle = "rgba(0,0,0,0.26)"; ctx.beginPath(); ctx.ellipse(hb.x + hb.w / 2, GROUND - 4, Math.max(40, hb.w * 0.52), 13, 0, 0, TAU); ctx.fill(); ctx.restore(); } juiceBoss(boss); } }
+      // el CUBO de la Disonancia: jaula de energía que encierra tu avioneta
+      if (flightCage) {
+        const c = flightCage, pu = 0.5 + Math.sin(time * 6) * 0.3;
+        ctx.save();
+        ctx.fillStyle = "rgba(192,24,56,0.06)"; ctx.fillRect(c.x, c.y, c.w, c.h);
+        ctx.strokeStyle = `rgba(255,58,94,${0.5 + pu * 0.35})`; ctx.lineWidth = 4;
+        ctx.setLineDash([16, 11]); ctx.lineDashOffset = -time * 44; ctx.strokeRect(c.x, c.y, c.w, c.h); ctx.setLineDash([]);
+        ctx.strokeStyle = "rgba(216,210,238,0.28)"; ctx.lineWidth = 1.5; ctx.strokeRect(c.x + 7, c.y + 7, c.w - 14, c.h - 14);
+        for (const k of [[c.x, c.y], [c.x + c.w, c.y], [c.x, c.y + c.h], [c.x + c.w, c.y + c.h]]) {
+          ctx.fillStyle = "#ff3a5e"; ctx.beginPath(); ctx.arc(k[0], k[1], 6 + pu * 3, 0, TAU); ctx.fill();
+          ctx.strokeStyle = "#0a0410"; ctx.lineWidth = 2; ctx.stroke();
+        }
+        ctx.restore();
+      }
       if (boss && boss.shielded) { const hb = boss.getHitboxes()[0], bx = hb.x + hb.w / 2, by = hb.y + hb.h / 2, r = Math.max(hb.w, hb.h) * 0.75; ctx.save(); ctx.strokeStyle = `rgba(159,224,255,${0.5 + Math.sin(time * 8) * 0.25})`; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(bx, by, r, 0, TAU); ctx.stroke(); ctx.fillStyle = "rgba(159,224,255,0.10)"; ctx.beginPath(); ctx.arc(bx, by, r, 0, TAU); ctx.fill(); ctx.restore(); }
       drawHazards(); drawProjs();
       if (superArtFx) drawSuperArt();
@@ -4463,6 +4683,7 @@
       if (state === "intro") drawIntro();
       if (state === "rngintro") drawRngIntro();
       if (state === "paused") drawPause();
+      if (state === "dev") drawDev();
       if (state === "won") drawWon();
       if (state === "rngwon") drawRngWon();
       if (state === "lost") drawLost();
@@ -4592,7 +4813,7 @@
       ctx.textAlign = "left"; ctx.fillStyle = "#ffd24a"; ctx.font = "bold 14px Trebuchet MS"; ctx.fillText("👕 Traje: " + sk.name, skr.x + 52, skr.y + 21);
       ctx.fillStyle = "#b9a998"; ctx.font = "11px Trebuchet MS"; ctx.fillText(nOpen + "/" + SKINS.length + " · clic para cambiar · se ganan jugando", skr.x + 52, skr.y + 38);
     }
-    ctx.textAlign = "right"; ctx.fillStyle = "#6a5a4a"; ctx.font = "12px Trebuchet MS"; ctx.fillText("v1.7", W - 16, H - 12); ctx.textAlign = "center";
+    ctx.textAlign = "right"; ctx.fillStyle = "#6a5a4a"; ctx.font = "12px Trebuchet MS"; ctx.fillText("v1.9.1", W - 16, H - 12); ctx.textAlign = "center";
   }
   function drawIntro() {
     ctx.fillStyle = "rgba(0,0,0,0.45)"; ctx.fillRect(0, 0, W, H);
@@ -4616,6 +4837,8 @@
       bigText("UN NUEVO RIVAL", 0, -48, 34, "#ffd24a");
       bigText(bossDef.name, 0, 24, 60, "#fff"); ctx.restore();
       bigText(bossDef.subtitle, W / 2, H / 2 + 92, 22, "#f3e3c0");
+      if (infectedFight) { const ip3 = 0.7 + Math.sin(time * 6) * 0.3; ctx.save(); ctx.globalAlpha = ip3; bigText("☣ INFECTADO POR LA DISONANCIA — LOCURA", W / 2, H / 2 + 128, 19, "#ff3a5e"); ctx.restore(); }
+      if (bossDef.diss) bigText("☠ SIEMPRE EN LOCURA — sin piedad, sin compás", W / 2, H / 2 + 128, 18, "#c050ff");
     } else {
       const k = 1 + Math.sin(clamp(stateT / 1.1, 0, 1) * Math.PI) * 0.3; ctx.save(); ctx.translate(W / 2, H / 2); ctx.scale(k, k);
       bigText("¿LISTO?", 0, -30, 56, "#fff"); bigText("¡A PELEAR!", 0, 50, 72, "#ff6a4a"); ctx.restore();
@@ -4626,10 +4849,10 @@
     const pv = ctx.createRadialGradient(W / 2, H / 2, 200, W / 2, H / 2, 760); pv.addColorStop(0, "rgba(0,0,0,0)"); pv.addColorStop(1, "rgba(0,0,0,0.5)");
     ctx.fillStyle = pv; ctx.fillRect(0, 0, W, H);
     floatingNotes(5, "#9a8ac0");
-    decoPanel(W / 2 - 190, 156, 380, 420);
+    decoPanel(W / 2 - 190, 156, 380, OPT.dev ? 470 : 420);
     bigText("⏸", W / 2, 208, 30, "#caa");
     bigText("PAUSA", W / 2, 258, 56, "#ffd24a");
-    ["Reanudar", "Opciones", "Reintentar", "Abandonar"].forEach((t, i) => drawButtonRect({ x: W / 2 - 130, y: 300 + i * 60, w: 260, h: 48 }, t, focus === i));
+    pauseItems().forEach((t, i) => drawButtonRect({ x: W / 2 - 130, y: 300 + i * 60, w: 260, h: 48 }, t, focus === i));
   }
   function drawWon() {
     ctx.fillStyle = "rgba(0,0,0,0.55)"; ctx.fillRect(0, 0, W, H);
